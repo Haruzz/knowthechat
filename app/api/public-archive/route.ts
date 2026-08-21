@@ -1,3 +1,5 @@
+import { NearDuplicateIndex } from "@/lib/near-duplicate-index";
+
 const PROVIDERS = [
   "https://recent-messages.robotty.de/api/v2/recent-messages/",
   "https://recent-messages.zneix.eu/api/v2/recent-messages/",
@@ -10,6 +12,11 @@ const KNOWN_BOTS = new Set([
   "streamelements", "nightbot", "moobot", "fossabot", "streamlabs", "streamlabscloudbot",
   "wizebot", "botrixoficial", "serybot", "stayhydratedbot", "soundalerts", "commanderroot",
   "pokemoncommunitygame", "own3d", "kofistreambot", "pretzelrocks", "songlistbot",
+]);
+const TWITCH_EVENT_IDS = new Set([
+  "sub", "resub", "subgift", "anonsubgift", "submysterygift", "anonsubmysterygift",
+  "giftpaidupgrade", "primepaidupgrade", "standardpayforward", "communitypayforward",
+  "raid", "unraid", "ritual", "bitsbadgetier", "charitydonation",
 ]);
 
 type HistoricalMessage = {
@@ -77,24 +84,9 @@ function isKnownBot(name: string) {
 
 function isTwitchEventNotice(body: string, tags: Record<string, unknown>) {
   const messageId = typeof tags["msg-id"] === "string" ? tags["msg-id"].toLowerCase() : "";
-  const eventIds = new Set([
-    "sub", "resub", "subgift", "anonsubgift", "submysterygift", "anonsubmysterygift",
-    "giftpaidupgrade", "primepaidupgrade", "standardpayforward", "communitypayforward",
-    "raid", "unraid", "ritual", "bitsbadgetier", "charitydonation",
-  ]);
   const systemMessage = typeof tags["system-msg"] === "string" ? tags["system-msg"].trim() : "";
   const noticeText = /\b(?:gifted (?:an? |\d+ )?(?:tier \d+ )?subs?|is gifting \d+|shared (?:their|an?) resub|subscribed at tier|months? in a row|continuing the gift sub|raided with \d+ viewers?)\b/i;
-  return eventIds.has(messageId) || Boolean(systemMessage) || noticeText.test(body);
-}
-
-function nearDuplicate(value:string,accepted:string[]){
-  const a=new Set(value.split(" ").filter(word=>word.length>2));
-  if(a.size<3)return true;
-  return accepted.some(other=>{
-    if(Math.abs(other.length-value.length)>Math.max(12,value.length*.3))return false;
-    const b=new Set(other.split(" ").filter(word=>word.length>2));let overlap=0;for(const word of a)if(b.has(word))overlap++;
-    return overlap/Math.max(a.size,b.size)>=.82;
-  });
+  return TWITCH_EVENT_IDS.has(messageId) || Boolean(systemMessage) || noticeText.test(body);
 }
 
 function recognizability(body: string) {
@@ -291,12 +283,12 @@ export async function POST(request: Request) {
 
   const seenIds = new Set<string>();
   const seenText = new Set<string>();
-  const acceptedText:string[]=[];
+  const nearDuplicates = new NearDuplicateIndex();
   const recentMessages = rawMessages.filter((x): x is string => typeof x === "string" && x.length <= 2000).map(parse).filter((m): m is NonNullable<ReturnType<typeof parse>> => Boolean(m));
   const parsedMessages = [...historical, ...recentMessages];
   const messages = parsedMessages.filter((m): m is NonNullable<typeof m> => {
-    if (!m || m.sentAt<cutoff || seenIds.has(m.id) || seenText.has(m.normalized) || nearDuplicate(m.normalized,acceptedText)) return false;
-    seenIds.add(m.id); seenText.add(m.normalized);acceptedText.push(m.normalized); return true;
+    if (!m || m.sentAt<cutoff || seenIds.has(m.id) || seenText.has(m.normalized) || nearDuplicates.hasNearDuplicate(m.normalized)) return false;
+    seenIds.add(m.id); seenText.add(m.normalized); nearDuplicates.add(m.normalized); return true;
   }).sort((a,b)=>a.sentAt-b.sentAt);
 
   const roomId = messages.find(message => message.roomId)?.roomId ?? "";
