@@ -12,7 +12,6 @@ const localBindingConfig = {
   name: "know-the-chat",
   main: "./worker/index.ts",
   compatibility_date: "2026-08-21",
-  compatibility_flags: ["nodejs_compat"],
   images: { binding: "IMAGES" },
   observability: { enabled: true },
   r2_buckets: r2
