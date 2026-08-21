@@ -2,6 +2,8 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "know-the-chat",
   "main": "./dist/server/index.js",
+  "workers_dev": false,
+  "preview_urls": false,
   "compatibility_date": "2026-08-21",
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
