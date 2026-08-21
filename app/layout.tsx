@@ -6,7 +6,13 @@ export const metadata: Metadata = {
   title: "Who Said It?",
   description: "A Twitch chat guessing game built from the people you actually know.",
   alternates: { canonical: "/" },
-  icons: { icon: "/logo.png", apple: "/logo.png" },
+  icons: {
+    icon: [
+      { url: "/favicon.ico", type: "image/x-icon" },
+      { url: "/logo.png", type: "image/png" },
+    ],
+    apple: "/logo.png",
+  },
   openGraph: { title: "Who Said It?", description: "Know your chat. Skip the strangers.", url: "/", siteName: "Know The Chat", images: ["/og.png"] },
   twitter: { card: "summary_large_image", title: "Who Said It?", description: "Know your chat. Skip the strangers.", images: ["/og.png"] },
 };
