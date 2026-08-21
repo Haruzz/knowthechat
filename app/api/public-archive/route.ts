@@ -184,7 +184,7 @@ async function fetchHistorical(channel: string, cutoff: number, rangeDays: numbe
   const available = Array.isArray(list?.availableLogs) ? list.availableLogs.filter((value): value is ArchiveDate => {
     if (!value || typeof value !== "object") return false;
     const date = value as Record<string, unknown>;
-    if (typeof date.year !== "string" || typeof date.month !== "string" || (date.day != null && typeof date.day !== "string")) return false;
+    if (typeof date.year !== "string" || typeof date.month !== "string" || (date.day !== null && date.day !== undefined && typeof date.day !== "string")) return false;
     return Date.UTC(Number(date.year), Number(date.month) - 1, Number(date.day ?? 1), 23, 59, 59) >= cutoff;
   }) : [];
   if (!available.length) return [];
