@@ -23,6 +23,9 @@ const eslintConfig = defineConfig([
   jsxA11y.flatConfigs.recommended,
   next.configs["core-web-vitals"],
   {
+    linterOptions: {
+      reportUnusedDisableDirectives: "error",
+    },
     languageOptions: {
       globals: {
         ...globals.browser,
@@ -34,6 +37,15 @@ const eslintConfig = defineConfig([
       react: {
         version: "detect",
       },
+    },
+    rules: {
+      "@next/next/no-img-element": "off",
+      eqeqeq: ["error", "always"],
+      "jsx-a11y/no-autofocus": "off",
+      "no-empty": ["error", { allowEmptyCatch: true }],
+      "no-console": ["error", { allow: ["warn", "error"] }],
+      "no-implicit-coercion": "error",
+      "prefer-const": "error",
     },
   },
 ]);
