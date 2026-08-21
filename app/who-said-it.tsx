@@ -21,7 +21,7 @@ function playAnswerSound(correct:boolean){
       oscillator.connect(gain);gain.connect(context.destination);oscillator.start(start);oscillator.stop(start+(correct?.3:.34));
     });
     setTimeout(()=>void context.close(),700);
-  }catch{}
+  }catch{/* Sound is optional; browsers may deny audio playback. */}
 }
 
 async function addBrowserSevenTv(quotes:Quote[],roomId:string){
@@ -53,7 +53,7 @@ function renderQuote(quote:Quote){
     if(emote.start<cursor||emote.end>=quote.text.length)continue;
     if(emote.start>cursor)parts.push(quote.text.slice(cursor,emote.start));
     const name=quote.text.slice(emote.start,emote.end+1);
-    parts.push(<span key={`${emote.id}-${emote.start}`} className="emote-with-label" tabIndex={0}><img className="chat-emote" src={emote.url??`https://static-cdn.jtvnw.net/emoticons/v2/${emote.id}/default/dark/3.0`} alt={name}/><span role="tooltip">{name}</span></span>);
+    parts.push(<span key={`${emote.id}-${emote.start}`} className="emote-with-label"><img className="chat-emote" src={emote.url??`https://static-cdn.jtvnw.net/emoticons/v2/${emote.id}/default/dark/3.0`} alt={name}/><span role="tooltip">{name}</span></span>);
     cursor=emote.end+1;
   }
   if(cursor<quote.text.length)parts.push(quote.text.slice(cursor));
@@ -91,8 +91,8 @@ export default function WhoSaidIt(){
 
   useEffect(()=>{const credit=document.createElement("a");credit.className="creator-credit";credit.href="https://www.twitch.tv/haruzzz";credit.target="_blank";credit.rel="noreferrer";credit.setAttribute("aria-label","Haruzzz on Twitch");credit.innerHTML='<span aria-hidden="true">T</span>Made by <strong>Haruzzz</strong>';document.body.appendChild(credit);return()=>credit.remove()},[]);
 
-  useEffect(()=>{const key=(event:KeyboardEvent)=>{if(!current)return;if(["1","2","3"].includes(event.key)&&!answered)answer(current.choices[Number(event.key)-1]);if((event.key==="Enter"||event.key===" ")&&answered)next()};addEventListener("keydown",key);return()=>removeEventListener("keydown",key)},[current,answered]);
-  useEffect(()=>{if(!current||!channel)return;const key=`knowthechat-seen:${channel}`;let seen:string[]=[];try{seen=JSON.parse(localStorage.getItem(key)||"[]")}catch{}if(!seen.includes(current.id)){seen.push(current.id);localStorage.setItem(key,JSON.stringify(seen.slice(-500))) }},[current,channel]);
+  useEffect(()=>{const key=(event:KeyboardEvent)=>{if(!current)return;if(["1","2","3"].includes(event.key)&&!answered){const name=current.choices[Number(event.key)-1];if(name){const isCorrect=name===current.author;setAnswered(name);playAnswerSound(isCorrect);if(isCorrect)setCorrect(value=>value+1)}}if((event.key==="Enter"||event.key===" ")&&answered){setAnswered(null);setIndex(value=>value+1)}};addEventListener("keydown",key);return()=>removeEventListener("keydown",key)},[current,answered]);
+  useEffect(()=>{if(!current||!channel)return;const key=`knowthechat-seen:${channel}`;let seen:string[]=[];try{seen=JSON.parse(localStorage.getItem(key)||"[]")}catch{/* Ignore malformed browser-local history. */}if(!seen.includes(current.id)){seen.push(current.id);localStorage.setItem(key,JSON.stringify(seen.slice(-500))) }},[current,channel]);
 
   async function load(event:FormEvent){event.preventDefault();setLoading(true);setLoadingProgress(4);setStreamer(null);setError("");const requestedChannel=channel.trim().toLowerCase().replace(/^@/,"");const timer=window.setInterval(()=>setLoadingProgress(value=>value<28?value+3:value<62?value+2:value<89?value+1:value),520);const profilePromise=fetch(`https://api.ivr.fi/v2/twitch/user?login=${encodeURIComponent(requestedChannel)}`).then(response=>response.ok?response.json():[]).then(users=>{const user=users?.[0];if(user?.logo)setStreamer({name:user.displayName??requestedChannel,logo:user.logo})}).catch(()=>{});try{const response=await fetch("/api/public-archive",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({channel:requestedChannel,rangeDays:lookback,chatterPool:Number(chatterPool)})});const data=await response.json();if(!response.ok){setError(data.error??"Could not load this archive.");return}setLoadingProgress(91);const enriched=await addBrowserSevenTv(data.quotes??[],data.roomId??"");setLoadingProgress(97);await profilePromise;let seen:string[]=[];try{seen=JSON.parse(localStorage.getItem(`knowthechat-seen:${data.channel}`)||"[]")}catch{}const freshQuotes=enriched.filter((quote:Quote)=>!seen.includes(quote.id));const freshRounds=makeRounds(freshQuotes,data.chatters??[]);const freshIds=new Set(freshRounds.map(round=>round.id));const replayRounds=makeRounds(enriched,data.chatters??[]).filter(round=>!freshIds.has(round.id));const available=[...freshRounds,...replayRounds];const built=mode==="10"?available.slice(0,10):available;if(built.length<3){setError("That archive does not have enough distinct, recognizable messages in the selected period.");return}setLoadingProgress(100);await new Promise(resolve=>setTimeout(resolve,260));setChannel(data.channel);setChatters(data.chatters);setRange(data.range);setRounds(built);setIndex(0);setCorrect(0);setAnswered(null)}finally{window.clearInterval(timer);setLoading(false)}}
   function answer(name:string){if(answered||!name)return;const isCorrect=name===current.author;setAnswered(name);playAnswerSound(isCorrect);if(isCorrect)setCorrect(v=>v+1)}
