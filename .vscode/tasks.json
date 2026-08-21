@@ -35,6 +35,12 @@
       "group": "build"
     },
     {
+      "label": "npm: Cloudflare deploy dry run",
+      "type": "npm",
+      "script": "deploy:dry-run",
+      "problemMatcher": ["$tsc"]
+    },
+    {
       "label": "npm: check",
       "type": "npm",
       "script": "check",

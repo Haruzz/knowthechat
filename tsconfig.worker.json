@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": false,
+    "lib": ["esnext"]
+  },
+  "include": ["worker/index.ts", ".wrangler/worker-configuration.d.ts"],
+  "exclude": ["node_modules"]
+}

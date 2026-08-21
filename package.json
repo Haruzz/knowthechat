@@ -9,11 +9,16 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "vinext start",
-    "test": "npm run build && node --test tests/rendered-html.test.mjs",
+    "test": "npm run build && npm run test:rendered",
+    "test:rendered": "node --test tests/rendered-html.test.mjs",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix --max-warnings 0",
-    "typecheck": "tsc --noEmit",
-    "check": "npm run lint && npm run typecheck && npm test"
+    "typecheck": "npm run build && npm run typecheck:source",
+    "typecheck:source": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
+    "types:worker": "node -e \"require('node:fs').mkdirSync('.wrangler', { recursive: true })\" && wrangler types .wrangler/worker-configuration.d.ts",
+    "deploy:dry-run": "npm run build && wrangler deploy --dry-run --config dist/server/wrangler.json",
+    "deploy:cloudflare": "wrangler deploy --config dist/server/wrangler.json",
+    "check": "npm run lint && npm run types:worker && npm run build && npm run typecheck:source && npm run test:rendered"
   },
   "dependencies": {
     "react": "19.2.6",
