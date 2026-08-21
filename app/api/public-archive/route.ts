@@ -4,6 +4,7 @@ const PROVIDERS = [
   "https://logs.zonian.dev/rm/",
 ] as const;
 const MAX_MESSAGES = 1000;
+const MIN_HISTORICAL_MESSAGES = 100;
 const HISTORY_ORIGIN = "https://logs.zonian.dev";
 const KNOWN_BOTS = new Set([
   "streamelements", "nightbot", "moobot", "fossabot", "streamlabs", "streamlabscloudbot",
@@ -276,7 +277,10 @@ export async function POST(request: Request) {
 
   const cutoff=rangeDays?Date.now()-rangeDays*86_400_000:0;
   const historical = await fetchHistorical(channel, cutoff, rangeDays);
-  const results=historical.length ? [] : await Promise.all(PROVIDERS.map(async provider=>{
+  // A provider can technically return a historical archive that is far too
+  // sparse to build a game. Supplement small samples with recent messages
+  // instead of treating any non-empty historical result as sufficient.
+  const results=historical.length >= MIN_HISTORICAL_MESSAGES ? [] : await Promise.all(PROVIDERS.map(async provider=>{
     const response=await fetch(`${provider}${encodeURIComponent(channel)}?limit=${MAX_MESSAGES}`,{headers:{Accept:"application/json","User-Agent":"KnowTheChat/1.0 public archive game"},signal:AbortSignal.timeout(12000)}).catch(()=>null);
     if(!response?.ok||Number(response.headers.get("content-length")||0)>5_000_000)return [];
     const payload=await response.json().catch(()=>null) as {messages?:unknown}|null;
@@ -288,7 +292,8 @@ export async function POST(request: Request) {
   const seenIds = new Set<string>();
   const seenText = new Set<string>();
   const acceptedText:string[]=[];
-  const parsedMessages = historical.length ? historical : rawMessages.filter((x): x is string => typeof x === "string" && x.length <= 2000).map(parse).filter((m): m is NonNullable<ReturnType<typeof parse>> => Boolean(m));
+  const recentMessages = rawMessages.filter((x): x is string => typeof x === "string" && x.length <= 2000).map(parse).filter((m): m is NonNullable<ReturnType<typeof parse>> => Boolean(m));
+  const parsedMessages = [...historical, ...recentMessages];
   const messages = parsedMessages.filter((m): m is NonNullable<typeof m> => {
     if (!m || m.sentAt<cutoff || seenIds.has(m.id) || seenText.has(m.normalized) || nearDuplicate(m.normalized,acceptedText)) return false;
     seenIds.add(m.id); seenText.add(m.normalized);acceptedText.push(m.normalized); return true;
