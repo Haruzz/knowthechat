@@ -29,9 +29,12 @@ VS Code uses the repository TypeScript version, formats on save, offers explicit
 | `npm run dev` | Start the local Vinext/Vite development server. |
 | `npm run lint` | Run the strict ESLint configuration; warnings fail the command. |
 | `npm run lint:fix` | Apply safe automatic ESLint fixes, then reject remaining warnings. |
-| `npm run typecheck` | Run strict TypeScript checking without writing output. |
+| `npm run typecheck` | Build, then strictly type-check the browser/server code and Worker code separately. |
+| `npm run types:worker` | Generate platform-local Cloudflare binding/runtime types under ignored `.wrangler/`. |
 | `npm test` | Build production output and test rendered HTML and the route surface. |
 | `npm run build` | Create the Cloudflare Worker-compatible production bundle in `dist/`. |
+| `npm run deploy:dry-run` | Build and validate the Worker upload without deploying it. |
+| `npm run deploy:cloudflare` | Deploy the already-built bundle; reserved for Cloudflare CI or an authorized operator. |
 | `npm run check` | Run lint, type-checking, tests, and the production build used by tests. |
 
 Before opening or updating a pull request, run `npm run check` from a clean install.
@@ -48,10 +51,13 @@ app/
   api/public-archive/route.ts   public archive aggregation and selection pipeline
 build/sites-vite-plugin.ts      copies Sites metadata into production output
 worker/index.ts                 Cloudflare Worker and image-optimization entry point
+.wrangler/worker-configuration.d.ts  generated, platform-local Cloudflare types (ignored)
 tests/rendered-html.test.mjs    production-render and route-surface checks
 .openai/hosting.json            ChatGPT Sites project metadata
+.github/workflows/quality.yml   GitHub checks for pull requests and main
 .vscode/                        editor recommendations, settings, and tasks
 vite.config.ts                  Vinext, Sites, and Cloudflare build configuration
+wrangler.jsonc                  standalone Cloudflare Worker deployment config
 ```
 
 The browser posts the channel, lookback, and chatter-pool choice to `/api/public-archive`. The endpoint returns ranked chatters and candidate quotes. The browser makes balanced three-choice rounds, prioritizes unseen quote IDs, renders emotes, plays optional answer sounds, and supports number keys plus Enter/Space. State is intentionally ephemeral except for local seen-message history.
@@ -109,7 +115,7 @@ Native Twitch emotes use their IRC character ranges and Twitch’s public CDN. T
 
 The GitHub repository is the source of truth for code and documentation. Work on a feature branch, keep changes focused, run `npm run check`, commit the exact tested files, push the branch, and use a draft pull request while work is under review. Merge only after checks and review pass. Never treat a Sites version as the canonical source snapshot.
 
-GitHub and ChatGPT Sites **do not automatically synchronize**. Pushing or merging GitHub does not update the hosted site, and saving or deploying a Sites version does not update GitHub. A deliberate operator must ensure both systems refer to the same commit.
+GitHub and ChatGPT Sites **do not automatically synchronize**. Pushing or merging GitHub does not update the hosted Site, and saving or deploying a Sites version does not update GitHub. A deliberate operator must ensure both systems refer to the same commit. The standalone Cloudflare Worker is different: once its Git integration is enabled, a push to `main` automatically runs the configured checks and deploy command from that exact commit.
 
 ## ChatGPT Sites, Cloudflare, and the custom domain
 
@@ -117,9 +123,26 @@ GitHub and ChatGPT Sites **do not automatically synchronize**. Pushing or mergin
 
 ChatGPT Sites owns saving and deploying site versions. Cloudflare runs the built Worker and serves assets. The custom domain `knowthechat.com` is represented in application metadata, while its DNS/custom-domain mapping is managed through the Cloudflare/Sites hosting controls—not by adding credentials or DNS secrets to this repository. DNS changes should preserve the records Sites instructs the owner to use; verify the domain, TLS, and canonical URL after an authorized deployment.
 
+## Cloudflare Workers CI/CD
+
+The standalone deployment target is the Worker named `know-the-chat`. `wrangler.jsonc` deploys `dist/server/index.js` with `dist/client` as static assets, the `ASSETS` and `IMAGES` bindings, and Worker observability. It deliberately contains no account ID, API token, application secret, database, or environment variable.
+
+Cloudflare Workers Builds should connect directly to `Haruzz/knowthechat` with these settings:
+
+- Production branch: `main`
+- Root directory: `/`
+- Build command: `npm run check`
+- Deploy command: `npm run deploy:cloudflare`
+- Non-production branch deploys: disabled initially
+- Build caching: enabled
+
+GitHub Actions independently runs `npm run check` for pull requests and pushes to `main`. It has read-only repository permission and does not deploy or require Cloudflare secrets. Cloudflare’s GitHub App performs the production build and deployment, so no long-lived Cloudflare API token belongs in GitHub Actions.
+
+Keep the existing ChatGPT Sites deployment and its DNS records live until the Worker’s `workers.dev` preview has passed the route and game checks. Cut the custom domain over only once; after DNS/TLS verification, treat the standalone Worker as production and Sites as an intentionally retained rollback source—not an auto-synchronized mirror.
+
 ## Safe deployment process (do not skip)
 
-Deployment is a separate, explicitly authorized operation. Completing a PR or pushing a branch is not permission to save or deploy a Sites version.
+Deployment is a separate, explicitly authorized operation until Cloudflare’s `main`-branch integration is enabled. After that one-time authorization, merging to `main` is permission to deploy that merge commit automatically; feature branches and pull requests remain non-deploying validation only.
 
 Before saving or deploying any Sites version, require every box below:
 
@@ -134,6 +157,8 @@ Before saving or deploying any Sites version, require every box below:
 - [ ] Obtain explicit deployment approval and confirm the intended access level and custom domain.
 - [ ] Deploy that new verified version, then check `/`, `/api/public-archive` behavior, metadata, TLS, and the custom domain.
 
+For a Cloudflare Worker release, the equivalent safety gate is: merge only a fully checked pull request; require GitHub’s Quality check to pass; require Cloudflare to build the same `main` commit; stop on any checkout, install, check, build, or source-SHA mismatch; and verify the Worker deployment’s commit before custom-domain traffic is changed. Never manually deploy an older Worker version because a new build failed.
+
 Incident warning: an incorrect old source snapshot was previously deployed as Sites version 35, and the correct site was restored from saved version 34. **Never deploy an existing or older Sites version as a fallback when a source push, version save, SHA comparison, or packaging step fails. Stop, leave the live site unchanged, fix the source/push problem, rerun every check, and create a new version from the exact pushed commit.**
 
-This repository setup does not deploy the website.
+The repository configuration is deploy-capable, but it does nothing until the Cloudflare Worker’s Git integration is explicitly connected and enabled.
