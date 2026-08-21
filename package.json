@@ -7,9 +7,10 @@
   },
   "scripts": {
     "dev": "vinext dev",
-    "build": "vinext build",
+    "build": "vinext build && node scripts/prepare-cloudflare-config.mjs",
     "start": "vinext start",
-    "test": "npm run build && npm run test:rendered",
+    "test": "npm run build && npm run test:unit && npm run test:rendered",
+    "test:unit": "node --experimental-strip-types --test tests/near-duplicate-index.test.mjs",
     "test:rendered": "node --test tests/rendered-html.test.mjs",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix --max-warnings 0",
@@ -18,7 +19,7 @@
     "types:worker": "node -e \"require('node:fs').mkdirSync('.wrangler', { recursive: true })\" && wrangler types .wrangler/worker-configuration.d.ts",
     "deploy:dry-run": "npm run build && wrangler deploy --dry-run --config dist/server/wrangler.json",
     "deploy:cloudflare": "wrangler deploy --config dist/server/wrangler.json",
-    "check": "npm run lint && npm run types:worker && npm run build && npm run typecheck:source && npm run test:rendered"
+    "check": "npm run lint && npm run types:worker && npm run build && npm run typecheck:source && npm run test:unit && npm run test:rendered"
   },
   "dependencies": {
     "react": "19.2.6",
@@ -45,7 +46,7 @@
     "typescript-eslint": "8.59.3",
     "vinext": "1.0.0-beta.2",
     "vite": "8.0.13",
-    "wrangler": "4.92.0"
+    "wrangler": "4.125.0"
   },
   "type": "module"
 }
