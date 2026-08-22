@@ -21,7 +21,12 @@ from domain.parsing import parse_irc_message
 from domain.ranking import rank_chatters
 from domain.scoring import score_recognizability
 from domain.text import add_third_party_spans
-from providers.protocols import EmoteProvider, HistoricalArchiveProvider, RecentArchiveProvider
+from providers.protocols import (
+    ArchiveYearUnavailableError,
+    EmoteProvider,
+    HistoricalArchiveProvider,
+    RecentArchiveProvider,
+)
 
 MAX_MESSAGES = 1_000
 MIN_HISTORICAL_MESSAGES = 100
@@ -63,13 +68,14 @@ class PublicArchiveService:
             "request_received",
             channel=request.channel,
             range_days=request.range_days,
+            archive_year=request.archive_year,
             chatter_pool=request.chatter_pool,
         )
         historical = await self._load_historical(request, cutoff)
         self._logger("historical_fetch_complete", messages=len(historical))
 
         raw_recent: list[str] = []
-        if len(historical) < MIN_HISTORICAL_MESSAGES:
+        if request.archive_year is None and len(historical) < MIN_HISTORICAL_MESSAGES:
             self._logger("recent_fallback_started", historical_messages=len(historical))
             batches = await asyncio.gather(
                 *(
@@ -168,8 +174,11 @@ class PublicArchiveService:
     async def _load_historical(self, request: PublicArchiveRequest, cutoff: float) -> list[Message]:
         try:
             return await self._historical_provider.fetch(
-                request.channel, cutoff, request.range_days
+                request.channel, cutoff, request.range_days, request.archive_year
             )
+        except ArchiveYearUnavailableError as error:
+            self._logger("archive_year_unavailable", archive_year=error.year)
+            raise NoPublicArchiveError(str(error)) from error
         except Exception as error:
             self._logger("historical_fetch_failed", error_type=type(error).__name__)
             return []

@@ -36,6 +36,8 @@ jobs:
         run: uv python install 3.13
       - name: Install locked dependencies
         run: npm ci
+      - name: Install locked Python dependencies
+        run: uv sync --project backend --locked --dev
       - name: Pre-commit
         run: npm run precommit:check
       - name: Type checks
@@ -44,7 +46,7 @@ jobs:
         run: npm run test
 
   build:
-    name: Build
+    name: Build and deploy
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -66,5 +68,14 @@ jobs:
         run: uv python install 3.13
       - name: Install locked dependencies
         run: npm ci
+      - name: Install locked Python dependencies
+        run: uv sync --project backend --locked --dev
       - name: Build application and validate Worker bundle
+        if: github.event_name == 'pull_request' || github.ref != 'refs/heads/main'
         run: npm run deploy:dry-run
+      - name: Build and deploy production Worker
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: npm run deploy:cloudflare
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

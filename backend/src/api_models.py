@@ -2,17 +2,27 @@ from __future__ import annotations
 
 import math
 import re
+from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class PublicArchiveRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     channel: str
-    range_days: float | None = Field(1_095, alias="rangeDays")
+    range_days: float | None = Field(None, alias="rangeDays")
+    archive_year: int | None = Field(None, alias="archiveYear")
     chatter_pool: Literal[25, 50, 100] = Field(50, alias="chatterPool")
+
+    @model_validator(mode="after")
+    def select_archive_period(self) -> PublicArchiveRequest:
+        if self.archive_year is not None:
+            self.range_days = None
+        elif self.range_days is None:
+            self.archive_year = datetime.now(UTC).year
+        return self
 
     @field_validator("channel", mode="before")
     @classmethod
@@ -25,20 +35,29 @@ class PublicArchiveRequest(BaseModel):
     @field_validator("range_days", mode="before")
     @classmethod
     def coerce_range_days(cls, value: Any) -> float | None:
-        if value == "all":
+        if value is None or value == "":
             return None
         try:
-            if value is None or value == "":
-                number = 0.0
-            elif isinstance(value, bool):
+            if isinstance(value, bool):
                 number = float(value)
             else:
                 number = float(value)
         except (TypeError, ValueError):
             number = math.nan
         if not math.isfinite(number) or number == 0:
-            number = 1_095
-        return min(3650, max(1, number))
+            number = 90
+        return min(90, max(1, number))
+
+    @field_validator("archive_year", mode="before")
+    @classmethod
+    def coerce_archive_year(cls, value: Any) -> int | None:
+        if value is None or value == "":
+            return None
+        try:
+            year = int(value)
+        except (TypeError, ValueError):
+            return datetime.now(UTC).year
+        return min(datetime.now(UTC).year, max(2011, year))
 
     @field_validator("chatter_pool", mode="before")
     @classmethod
