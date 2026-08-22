@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -54,6 +55,7 @@ async def test_valid_request_preserves_response_contract() -> None:
     }
     assert service.request is not None
     assert service.request.range_days == 30
+    assert service.request.archive_year is None
 
 
 @pytest.mark.asyncio
@@ -69,7 +71,7 @@ async def test_invalid_channel_matches_existing_error(channel: object) -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("value", "expected"),
-    [("all", None), (0, 1_095), (-5, 1), (99999, 3650), ("bad", 1_095), (30.5, 30.5)],
+    [(0, 90), (-5, 1), (99999, 90), ("bad", 90), (30.5, 30.5)],
 )
 async def test_lookback_coercion(value: object, expected: float | None) -> None:
     service = CapturingService()
@@ -77,15 +79,31 @@ async def test_lookback_coercion(value: object, expected: float | None) -> None:
         await client.post("/api/public-archive", json={"channel": "haruzz", "rangeDays": value})
     assert service.request is not None
     assert service.request.range_days == expected
+    assert service.request.archive_year is None
 
 
 @pytest.mark.asyncio
-async def test_missing_lookback_defaults_to_three_years() -> None:
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(2024, 2024), (1900, 2011), (9999, datetime.now(UTC).year), ("bad", datetime.now(UTC).year)],
+)
+async def test_archive_year_coercion(value: object, expected: int) -> None:
+    service = CapturingService()
+    async with client_for(service) as client:
+        await client.post("/api/public-archive", json={"channel": "haruzz", "archiveYear": value})
+    assert service.request is not None
+    assert service.request.archive_year == expected
+    assert service.request.range_days is None
+
+
+@pytest.mark.asyncio
+async def test_missing_period_defaults_to_current_year() -> None:
     service = CapturingService()
     async with client_for(service) as client:
         await client.post("/api/public-archive", json={"channel": "haruzz"})
     assert service.request is not None
-    assert service.request.range_days == 1_095
+    assert service.request.range_days is None
+    assert service.request.archive_year == datetime.now(UTC).year
 
 
 @pytest.mark.asyncio

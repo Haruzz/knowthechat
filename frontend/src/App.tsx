@@ -24,6 +24,12 @@ type Quote = {
 };
 type Round = Quote & { choices: string[] };
 
+const CURRENT_YEAR = new Date().getUTCFullYear();
+const ARCHIVE_YEARS = Array.from(
+  { length: 4 },
+  (_, index) => CURRENT_YEAR - index,
+);
+
 function shuffled<T>(items: T[]) {
   const copy = [...items];
   for (let i = copy.length - 1; i > 0; i--) {
@@ -199,7 +205,7 @@ export default function WhoSaidIt() {
     name: string;
     logo: string;
   } | null>(null);
-  const [lookback, setLookback] = useState("1095");
+  const [lookback, setLookback] = useState(`year:${CURRENT_YEAR}`);
   const [mode, setMode] = useState<"unlimited" | "10">("unlimited");
   const [chatterPool, setChatterPool] = useState("50");
   const [rounds, setRounds] = useState<Round[]>([]);
@@ -298,12 +304,17 @@ export default function WhoSaidIt() {
       })
       .catch(() => {});
     try {
+      const archiveYear = lookback.startsWith("year:")
+        ? Number(lookback.slice(5))
+        : null;
       const response = await fetch("/api/public-archive", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           channel: requestedChannel,
-          rangeDays: lookback,
+          ...(archiveYear === null
+            ? { rangeDays: Number(lookback) }
+            : { archiveYear }),
           chatterPool: Number(chatterPool),
         }),
       });
@@ -385,17 +396,11 @@ export default function WhoSaidIt() {
             : loadingProgress < 100
               ? "Loading channel emotes"
               : "Case file ready";
-  const lookbackLabel =
-    (
-      {
-        "30": "30 days",
-        "90": "3 months",
-        "365": "1 year",
-        "730": "2 years",
-        "1095": "3 years",
-        all: "All available",
-      } as Record<string, string>
-    )[lookback] ?? "3 years";
+  const lookbackLabel = lookback.startsWith("year:")
+    ? lookback.slice(5)
+    : (({ "30": "30 days", "90": "3 months" } as Record<string, string>)[
+        lookback
+      ] ?? "3 months");
   const poolLabel =
     (
       {
@@ -500,17 +505,18 @@ export default function WhoSaidIt() {
             </div>
             <section className="game-options">
               <label>
-                Maximum lookback
+                Archive period
                 <select
                   value={lookback}
                   onChange={(e) => setLookback(e.target.value)}
                 >
                   <option value="30">Up to 30 days</option>
                   <option value="90">Up to 3 months</option>
-                  <option value="365">Up to 1 year</option>
-                  <option value="730">Up to 2 years</option>
-                  <option value="1095">Up to 3 years</option>
-                  <option value="all">All available</option>
+                  {ARCHIVE_YEARS.map((year) => (
+                    <option key={year} value={`year:${year}`}>
+                      {year}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label>
