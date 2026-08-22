@@ -7,6 +7,7 @@
   "eslint.useFlatConfig": true,
   "files.eol": "\n",
   "files.insertFinalNewline": true,
+  "python.defaultInterpreterPath": "${workspaceFolder}/backend/.venv/Scripts/python.exe",
   "typescript.tsdk": "node_modules/typescript/lib",
   "typescript.enablePromptUseWorkspaceTsdk": true
 }

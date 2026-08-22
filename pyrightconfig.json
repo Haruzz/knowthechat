@@ -1,0 +1,9 @@
+{
+  "include": ["backend/src", "backend/tests"],
+  "extraPaths": ["backend/src"],
+  "venvPath": "backend",
+  "venv": ".venv",
+  "pythonVersion": "3.13",
+  "typeCheckingMode": "standard",
+  "reportMissingTypeStubs": false
+}

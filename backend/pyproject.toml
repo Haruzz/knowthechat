@@ -1,0 +1,42 @@
+[project]
+name = "know-the-chat-backend"
+version = "0.1.0"
+description = "Cloudflare Python Worker for the Know The Chat public archive API"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "fastapi>=0.141.1",
+  # 2.10.6 is the newest release with a pydantic-core wheel in the
+  # Pyodide 0.28.3 index used by workers-py 1.16.7.
+  "pydantic==2.10.6",
+]
+
+[dependency-groups]
+dev = [
+  "httpx>=0.28.1",
+  "pyright>=1.1.404,<2",
+  "pytest>=8.4,<9",
+  "pytest-asyncio>=1.1,<2",
+  "ruff>=0.12,<1",
+  "workers-py>=1.16.7,<2",
+  "workers-runtime-sdk",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+asyncio_mode = "auto"
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
+
+[tool.pyright]
+include = ["src", "tests"]
+extraPaths = ["src"]
+pythonVersion = "3.13"
+typeCheckingMode = "standard"
+reportMissingTypeStubs = false

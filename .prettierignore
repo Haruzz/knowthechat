@@ -1,0 +1,11 @@
+node_modules/
+frontend/dist/
+frontend/.wrangler/
+backend/.venv/
+backend/.venv-workers/
+backend/.pytest_cache/
+backend/.ruff_cache/
+backend/.wrangler/
+backend/python_modules/
+backend/pylock.toml
+package-lock.json

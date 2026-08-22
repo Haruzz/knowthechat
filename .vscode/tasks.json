@@ -10,6 +10,15 @@
       "group": "build"
     },
     {
+      "label": "uv: dev backend",
+      "type": "shell",
+      "command": "uv",
+      "args": ["run", "--directory", "backend", "pywrangler", "dev"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
       "label": "npm: lint",
       "type": "npm",
       "script": "lint",
