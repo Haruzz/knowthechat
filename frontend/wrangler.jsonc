@@ -1,0 +1,8 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "know-the-chat-frontend-local",
+  "workers_dev": false,
+  "preview_urls": false,
+  "compatibility_date": "2026-08-22",
+  "assets": { "not_found_handling": "single-page-application" },
+}

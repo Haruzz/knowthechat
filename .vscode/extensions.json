@@ -2,6 +2,9 @@
   "recommendations": [
     "dbaeumer.vscode-eslint",
     "esbenp.prettier-vscode",
-    "ms-vscode.vscode-typescript-next"
+    "ms-vscode.vscode-typescript-next",
+    "charliermarsh.ruff",
+    "ms-python.python",
+    "ms-python.vscode-pylance"
   ]
 }

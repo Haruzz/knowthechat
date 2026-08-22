@@ -1,0 +1,34 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Frontend: Vite",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev:frontend",
+      "cwd": "${workspaceFolder}",
+      "presentation": {
+        "group": "know-the-chat",
+        "order": 1
+      }
+    },
+    {
+      "name": "Backend: Python Worker",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "uv run --directory backend pywrangler dev",
+      "cwd": "${workspaceFolder}",
+      "presentation": {
+        "group": "know-the-chat",
+        "order": 2
+      }
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Full stack: Frontend + Backend",
+      "configurations": ["Frontend: Vite", "Backend: Python Worker"],
+      "stopAll": true
+    }
+  ]
+}

@@ -1,53 +1,40 @@
 {
   "name": "know-the-chat",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
   },
+  "workspaces": [
+    "frontend"
+  ],
   "scripts": {
-    "dev": "vinext dev",
-    "build": "vinext build && node scripts/prepare-cloudflare-config.mjs",
-    "start": "vinext start",
-    "test": "npm run build && npm run test:unit && npm run test:rendered",
-    "test:unit": "node --experimental-strip-types --test tests/near-duplicate-index.test.mjs",
-    "test:rendered": "node --test tests/rendered-html.test.mjs",
-    "lint": "eslint . --max-warnings 0",
-    "lint:fix": "eslint . --fix --max-warnings 0",
-    "typecheck": "npm run build && npm run typecheck:source",
-    "typecheck:source": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
-    "types:worker": "node -e \"require('node:fs').mkdirSync('.wrangler', { recursive: true })\" && wrangler types .wrangler/worker-configuration.d.ts",
-    "assets:favicon": "node scripts/generate-favicon.mjs",
-    "deploy:dry-run": "npm run build && wrangler deploy --dry-run --config dist/server/wrangler.json",
-    "deploy:cloudflare": "wrangler deploy --config dist/server/wrangler.json",
-    "check": "npm run lint && npm run types:worker && npm run build && npm run typecheck:source && npm run test:unit && npm run test:rendered"
+    "dev": "npm run dev -w frontend",
+    "dev:frontend": "npm run dev -w frontend",
+    "build": "npm run build -w frontend",
+    "format": "prettier --write . && sh scripts/with-uv.sh run --project backend ruff format backend",
+    "format:check": "prettier --check . && sh scripts/with-uv.sh run --project backend ruff format --check backend",
+    "lint": "npm run lint -w frontend",
+    "typecheck": "npm run typecheck -w frontend",
+    "test": "npm run test -w frontend && sh scripts/with-uv.sh run --directory backend pytest -q",
+    "precommit": "lint-staged",
+    "prepare": "husky",
+    "check:backend": "sh scripts/with-uv.sh run --directory backend ruff check . && sh scripts/with-uv.sh run --directory backend pyright && sh scripts/with-uv.sh run --directory backend pytest -q",
+    "check": "npm run check -w frontend && npm run check:backend && npm run deploy:dry-run",
+    "deploy:dry-run": "npm run build -w frontend && sh scripts/with-uv.sh run --directory backend pywrangler deploy --dry-run",
+    "deploy:cloudflare": "npm run build -w frontend && sh scripts/with-uv.sh run --directory backend pywrangler deploy"
   },
-  "dependencies": {
-    "react": "19.2.6",
-    "react-dom": "19.2.6"
+  "lint-staged": {
+    "*.{css,html,js,json,jsonc,jsx,md,mjs,ts,tsx,yaml,yml}": "prettier --write",
+    "frontend/**/*.{js,jsx,mjs,ts,tsx}": "npm exec --workspace frontend -- eslint --fix",
+    "backend/**/*.py": [
+      "sh scripts/with-uv.sh run --project backend ruff check --fix",
+      "sh scripts/with-uv.sh run --project backend ruff format"
+    ]
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "1.37.1",
-    "@eslint/js": "9.39.4",
-    "@next/eslint-plugin-next": "16.2.6",
-    "@tailwindcss/postcss": "4.2.1",
-    "@types/node": "22.19.19",
-    "@types/react": "19.2.14",
-    "@types/react-dom": "19.2.3",
-    "@vitejs/plugin-react": "6.0.2",
-    "@vitejs/plugin-rsc": "0.5.26",
-    "eslint": "9.39.4",
-    "eslint-plugin-jsx-a11y": "6.10.2",
-    "eslint-plugin-react": "7.37.5",
-    "eslint-plugin-react-hooks": "7.1.1",
-    "globals": "16.4.0",
-    "react-server-dom-webpack": "19.2.6",
-    "tailwindcss": "4.2.1",
-    "typescript": "5.9.3",
-    "typescript-eslint": "8.59.3",
-    "vinext": "1.0.0-beta.2",
-    "vite": "8.0.13",
-    "wrangler": "4.125.0"
-  },
-  "type": "module"
+    "husky": "9.1.7",
+    "lint-staged": "17.3.0",
+    "prettier": "3.9.6"
+  }
 }
