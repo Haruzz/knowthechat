@@ -1,15 +1,21 @@
-name: Quality
+name: CI
 
 on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  check:
+  test:
+    name: Test
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -30,5 +36,35 @@ jobs:
         run: uv python install 3.13
       - name: Install locked dependencies
         run: npm ci
-      - name: Run all checks
-        run: npm run check
+      - name: Pre-commit
+        run: npm run precommit:check
+      - name: Type checks
+        run: npm run typecheck
+      - name: Tests
+        run: npm run test
+
+  build:
+    name: Build
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the pushed commit
+        uses: actions/checkout@v6
+      - name: Use Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.5"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Install Python 3.13
+        run: uv python install 3.13
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Build application and validate Worker bundle
+        run: npm run deploy:dry-run

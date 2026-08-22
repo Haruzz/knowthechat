@@ -86,3 +86,15 @@ npm run deploy:cloudflare
 ```
 
 Do not run it casually: it builds the Vite frontend and deploys the combined asset/Python Worker bundle to the existing `know-the-chat` Worker and custom domains. No secrets or storage bindings are required.
+
+## CI/CD
+
+GitHub Actions runs for every pull request and every push to `main`:
+
+1. **Test**
+   - **Pre-commit:** Prettier formatting plus frontend ESLint and backend Ruff
+   - **Type checks:** strict TypeScript and Pyright
+   - **Tests:** Vitest and pytest
+2. **Build:** creates the Vite production bundle and performs a complete Cloudflare deployment dry run
+
+Pull requests from feature branches therefore have to pass both jobs before they are ready to merge. A push to `main` runs the same GitHub checks. Cloudflare Workers Builds also watches `main`; it independently runs `npm run check` as its build gate and runs `npm run deploy:cloudflare` only when that gate succeeds. GitHub Actions never receives Cloudflare deployment credentials and does not deploy production itself.
