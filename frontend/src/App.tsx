@@ -1,4 +1,10 @@
-import { CSSProperties, FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  CSSProperties,
+  SubmitEvent,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 type Chatter = {
   id: string;
@@ -25,6 +31,7 @@ type Quote = {
 type Round = Quote & { choices: string[] };
 
 const CURRENT_YEAR = new Date().getUTCFullYear();
+const PROFILE_REQUEST_TIMEOUT_MS = 3_000;
 const ARCHIVE_YEARS = Array.from(
   { length: 4 },
   (_, index) => CURRENT_YEAR - index,
@@ -270,7 +277,7 @@ export default function WhoSaidIt() {
     }
   }, [current, channel]);
 
-  async function load(event: FormEvent) {
+  async function load(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
     setLoadingProgress(4);
@@ -290,8 +297,9 @@ export default function WhoSaidIt() {
         ),
       520,
     );
-    const profilePromise = fetch(
+    void fetch(
       `https://api.ivr.fi/v2/twitch/user?login=${encodeURIComponent(requestedChannel)}`,
+      { signal: AbortSignal.timeout(PROFILE_REQUEST_TIMEOUT_MS) },
     )
       .then((response) => (response.ok ? response.json() : []))
       .then((users) => {
@@ -329,7 +337,6 @@ export default function WhoSaidIt() {
         data.roomId ?? "",
       );
       setLoadingProgress(97);
-      await profilePromise;
       let seen: string[] = [];
       try {
         seen = JSON.parse(

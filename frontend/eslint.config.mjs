@@ -15,6 +15,18 @@ export default defineConfig([
   reactHooks.configs.flat["recommended-latest"],
   jsxA11y.flatConfigs.recommended,
   {
+    files: ["**/*.{ts,tsx}"],
+    languageOptions: {
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      "@typescript-eslint/no-deprecated": "error",
+    },
+  },
+  {
     linterOptions: { reportUnusedDisableDirectives: "error" },
     languageOptions: { globals: { ...globals.browser, ...globals.node } },
     settings: { react: { version: "detect" } },
