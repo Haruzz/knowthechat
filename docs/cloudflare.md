@@ -72,19 +72,20 @@ Then open `http://127.0.0.1:8787`.
 
 ## Deployment and rollback
 
-The connected Cloudflare Workers Builds project watches `main` and keeps its two
-GitHub Actions is the only production deployment controller. Store these encrypted
-repository secrets in GitHub Actions:
+The Worker is connected to the `Haruzz/knowthechat` GitHub repository through
+Cloudflare Workers Builds. Its production branch is `main`; non-production branch
+builds are disabled because GitHub Actions already validates pull requests. The
+Cloudflare build settings use the repository root and run:
 
 ```text
-CLOUDFLARE_ACCOUNT_ID
-CLOUDFLARE_API_TOKEN
+Build command:  npm run build
+Deploy command: npm run deploy:worker
 ```
 
-The token should be limited to this Cloudflare account and Worker deployment
-permissions. Keep Cloudflare's automatic Git deployment disabled: pull requests
-run a deployment dry run, while `main` deploys with `npm run deploy:cloudflare`
-only after formatting, linting, type checks, and tests pass.
+Every merge or direct push to `main` therefore creates a Cloudflare build and, if
+the build succeeds, deploys the combined Worker. GitHub Actions runs formatting,
+linting, type checks, tests, and a deployment dry run on pull requests only. It has
+no production deployment job and requires no Cloudflare account ID or API token.
 
 Cloudflare's build image includes Python 3.13 but does not document `uv` as a
 preinstalled tool. Every repository command that needs `uv` therefore goes through
@@ -93,9 +94,9 @@ only on a Linux build machine where `uv` is missing, installs pinned `uv` 0.12.5
 into `$HOME/.local/bin` using Astral's official versioned installer. GitHub Actions
 installs the same pinned version through `astral-sh/setup-uv` before running checks.
 
-This keeps Cloudflare configuration reproducible in the repository and preserves
-normal local execution through Git Bash. A missing Windows installation produces a
-clear error instead of silently installing software on the developer machine.
+This keeps the deploy commands reproducible in the repository and preserves normal
+local execution through Git Bash. A missing Windows installation produces a clear
+error instead of silently installing software on the developer machine.
 
 Preflight without changing Cloudflare:
 
@@ -109,7 +110,10 @@ Authorized production cutover:
 npm run deploy:cloudflare
 ```
 
-This rebuilds the frontend before `pywrangler deploy`. The only required binding is the automatically provisioned `ASSETS` binding; no secrets, KV, D1, R2, Images, or service bindings are required.
+This manual fallback rebuilds the frontend before `pywrangler deploy`. Normal
+production deployments are performed by Workers Builds. The only required binding
+is the automatically provisioned `ASSETS` binding; no secrets, KV, D1, R2, Images,
+or service bindings are required.
 
 Rollback immediately if health checks fail:
 
@@ -137,5 +141,7 @@ After rollback, verify `/`, `/logo.png`, a `POST /api/public-archive`, and both 
 - [Python package support](https://developers.cloudflare.com/workers/languages/python/packages/)
 - [FastAPI on Python Workers](https://developers.cloudflare.com/workers/languages/python/packages/fastapi/)
 - [Workers Builds build image](https://developers.cloudflare.com/workers/ci-cd/builds/build-image/)
+- [Workers Builds configuration](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/)
+- [Workers Builds branch control](https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/)
 - [Installing uv](https://docs.astral.sh/uv/getting-started/installation/)
 - [Wrangler configuration](https://developers.cloudflare.com/workers/wrangler/configuration/)
