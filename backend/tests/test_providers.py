@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import random
 from typing import Any
 
 import pytest
@@ -8,16 +9,22 @@ import pytest
 from providers.archives import (
     ARCHIVE_LIST_CACHE_TTL,
     ARCHIVE_RESPONSE_MAX_BYTES,
+    ARCHIVE_STATS_MAX_BYTES,
     HISTORICAL_FETCH_CONCURRENCY,
     MAX_HISTORICAL_DATES,
     MAX_HISTORICAL_MESSAGES,
+    MAX_OVERSIZED_ARCHIVE_DATES,
     TRUSTED_ARCHIVE_ORIGINS,
     RecentMessagesProvider,
     ZonianHistoricalProvider,
     _sample_evenly,
 )
 from providers.emotes import BetterTtvProvider, FrankerFaceZProvider, SevenTvProvider
-from providers.protocols import ArchiveYearUnavailableError
+from providers.protocols import (
+    ArchiveTooLargeError,
+    ArchiveYearUnavailableError,
+    HttpResponseTooLargeError,
+)
 
 
 class FakeHttpClient:
@@ -61,20 +68,54 @@ def historical_message(
 @pytest.mark.asyncio
 async def test_zonian_provider_samples_and_caches_completed_day() -> None:
     list_url = "https://logs.zonian.dev/list?channel=channel"
-    day_url = "https://logs.zonian.dev/channel/channel/2024/01/2?jsonBasic=1"
+    stats_url = (
+        "https://logs.zonian.dev/channel/channel/stats"
+        "?from=2024-01-02T00%3A00%3A00Z&to=2024-01-02T23%3A59%3A59.999999Z"
+    )
+    day_url = "https://logs.zonian.dev/channel/channel/2024/01/2?jsonBasic=1&limit=4000&offset=0"
     client = FakeHttpClient(
         {
             list_url: {"availableLogs": [{"year": "2024", "month": "01", "day": "2"}]},
+            stats_url: {"messageCount": 2},
             day_url: {"messages": [historical_message(), {"malformed": True}]},
         }
     )
     messages = await ZonianHistoricalProvider(client).fetch("channel", 0, 30)
     assert [message.id for message in messages] == ["h1"]
     list_call = next(call for call in client.calls if "/list?" in call["url"])
-    day_call = next(call for call in client.calls if "/channel/" in call["url"])
+    stats_call = next(call for call in client.calls if "/stats?" in call["url"])
+    day_call = next(call for call in client.calls if "?jsonBasic=1" in call["url"])
     assert list_call["cache_ttl"] == ARCHIVE_LIST_CACHE_TTL
+    assert stats_call["max_bytes"] == ARCHIVE_STATS_MAX_BYTES
     assert day_call["cache_ttl"] == 86_400
     assert day_call["max_bytes"] == ARCHIVE_RESPONSE_MAX_BYTES
+
+
+@pytest.mark.asyncio
+async def test_zonian_provider_samples_a_bounded_window_from_a_busy_day() -> None:
+    list_url = "https://logs.zonian.dev/list?channel=channel"
+    stats_url = (
+        "https://logs.zonian.dev/channel/channel/stats"
+        "?from=2025-01-27T00%3A00%3A00Z&to=2025-01-27T23%3A59%3A59.999999Z"
+    )
+    offset = random.Random(7).randrange(6_001)
+    day_url = (
+        f"https://logs.zonian.dev/channel/channel/2025/01/27?jsonBasic=1&limit=4000&offset={offset}"
+    )
+    client = FakeHttpClient(
+        {
+            list_url: {"availableLogs": [{"year": "2025", "month": "01", "day": "27"}]},
+            stats_url: {"messageCount": 10_000},
+            day_url: {"messages": [historical_message("sample", "2025-01-27T12:00:00Z")]},
+        }
+    )
+
+    messages = await ZonianHistoricalProvider(client, rng=random.Random(7)).fetch(
+        "channel", 0, None, 2025
+    )
+
+    assert [message.id for message in messages] == ["sample"]
+    assert any(call["url"] == day_url for call in client.calls)
 
 
 @pytest.mark.asyncio
@@ -82,7 +123,9 @@ async def test_discovered_instances_are_unioned_for_calendar_years() -> None:
     discovery_url = "https://logs.zonian.dev/api/channel"
     logxx_list = "https://logxx.dev/list?channel=channel"
     spanix_list = "https://logs.spanix.team/list?channel=channel"
-    spanix_day = "https://logs.spanix.team/channel/channel/2024/09/11?jsonBasic=1"
+    spanix_day = (
+        "https://logs.spanix.team/channel/channel/2024/09/11?jsonBasic=1&limit=4000&offset=0"
+    )
     client = FakeHttpClient(
         {
             discovery_url: {
@@ -146,7 +189,7 @@ class TrackingHttpClient(FakeHttpClient):
         user_agent: str,
         cache_ttl: int | None = None,
     ) -> Any | None:
-        if "/channel/" not in url:
+        if "?jsonBasic=1" not in url:
             return await super().get_json(
                 url,
                 timeout_ms=timeout_ms,
@@ -171,6 +214,36 @@ class TrackingHttpClient(FakeHttpClient):
             self.active_archive_requests -= 1
 
 
+class OversizedArchiveHttpClient(FakeHttpClient):
+    async def get_json(
+        self,
+        url: str,
+        *,
+        timeout_ms: int,
+        max_bytes: int,
+        user_agent: str,
+        cache_ttl: int | None = None,
+    ) -> Any | None:
+        if "?jsonBasic=1" in url:
+            self.calls.append(
+                {
+                    "url": url,
+                    "timeout_ms": timeout_ms,
+                    "max_bytes": max_bytes,
+                    "user_agent": user_agent,
+                    "cache_ttl": cache_ttl,
+                }
+            )
+            raise HttpResponseTooLargeError(max_bytes)
+        return await super().get_json(
+            url,
+            timeout_ms=timeout_ms,
+            max_bytes=max_bytes,
+            user_agent=user_agent,
+            cache_ttl=cache_ttl,
+        )
+
+
 @pytest.mark.asyncio
 async def test_long_range_spans_history_with_bounded_concurrency() -> None:
     list_url = "https://logs.zonian.dev/list?channel=channel"
@@ -182,19 +255,42 @@ async def test_long_range_spans_history_with_bounded_concurrency() -> None:
     responses: dict[str, Any] = {list_url: {"availableLogs": dates}}
     for date in dates:
         url = (
-            f"https://logs.zonian.dev/channel/channel/{date['year']}/{date['month']}/1?jsonBasic=1"
+            f"https://logs.zonian.dev/channel/channel/{date['year']}/{date['month']}/1"
+            "?jsonBasic=1&limit=2000&offset=0"
         )
         responses[url] = {"messages": [historical_message(f"{date['year']}-{date['month']}")]}
 
     client = TrackingHttpClient(responses)
     messages = await ZonianHistoricalProvider(client).fetch("channel", 0, 1_095)
 
-    day_calls = [call for call in client.calls if "/channel/" in call["url"]]
+    day_calls = [call for call in client.calls if "?jsonBasic=1" in call["url"]]
     assert len(day_calls) == MAX_HISTORICAL_DATES
     assert client.maximum_archive_requests == HISTORICAL_FETCH_CONCURRENCY
     assert any("/2023/" in call["url"] for call in day_calls)
     assert any("/2024/" in call["url"] for call in day_calls)
     assert len(messages) == MAX_HISTORICAL_DATES
+
+
+@pytest.mark.asyncio
+async def test_oversized_dates_do_not_retry_mirrors_or_exhaust_the_request() -> None:
+    origins = ("https://logxx.dev", "https://logs.spanix.team")
+    dates = [
+        {"year": "2025", "month": f"{month:02d}", "day": "15"}
+        for month in range(1, MAX_HISTORICAL_DATES + 1)
+    ]
+    responses: dict[str, Any] = {
+        "https://logs.zonian.dev/api/channel": {"channelLogs": {"instances": list(origins)}},
+        **{f"{origin}/list?channel=channel": {"availableLogs": dates} for origin in origins},
+    }
+    client = OversizedArchiveHttpClient(responses)
+    provider = ZonianHistoricalProvider(client)
+
+    with pytest.raises(ArchiveTooLargeError, match="2025 archive"):
+        await provider.fetch("channel", 0, None, 2025)
+
+    day_calls = [call for call in client.calls if "?jsonBasic=1" in call["url"]]
+    assert len(day_calls) == MAX_OVERSIZED_ARCHIVE_DATES
+    assert all(call["url"].startswith(origins[0]) for call in day_calls)
 
 
 @pytest.mark.asyncio
@@ -207,7 +303,10 @@ async def test_historical_messages_have_a_hard_global_budget() -> None:
     responses: dict[str, Any] = {list_url: {"availableLogs": dates}}
     messages_per_date = MAX_HISTORICAL_MESSAGES // MAX_HISTORICAL_DATES + 200
     for date in dates:
-        url = f"https://logs.zonian.dev/channel/channel/2024/{date['month']}/1?jsonBasic=1"
+        url = (
+            f"https://logs.zonian.dev/channel/channel/2024/{date['month']}/1"
+            "?jsonBasic=1&limit=2000&offset=0"
+        )
         responses[url] = {
             "messages": [
                 historical_message(f"{date['month']}-{index}") for index in range(messages_per_date)

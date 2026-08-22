@@ -3,23 +3,31 @@ from __future__ import annotations
 import asyncio
 import random
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from urllib.parse import quote
 
 from domain.models import ArchiveDate, Message
 from domain.parsing import parse_historical_message
 from domain.sampling import date_key, sample_dates, sample_even_dates
-from providers.protocols import ArchiveYearUnavailableError, JsonHttpClient
+from providers.protocols import (
+    ArchiveTooLargeError,
+    ArchiveYearUnavailableError,
+    HttpResponseTooLargeError,
+    JsonHttpClient,
+)
 
 HISTORY_ORIGIN = "https://logs.zonian.dev"
 ARCHIVE_LIST_CACHE_TTL = 300
 ARCHIVE_DISCOVERY_MAX_BYTES = 2_000_000
 ARCHIVE_LIST_MAX_BYTES = 1_000_000
+ARCHIVE_STATS_MAX_BYTES = 100_000
 ARCHIVE_RESPONSE_MAX_BYTES = 10_000_000
 HISTORICAL_FETCH_CONCURRENCY = 2
 MAX_ARCHIVE_INSTANCES = 6
 MAX_HISTORICAL_DATES = 12
-MAX_HISTORICAL_MESSAGES = 12_000
+MAX_HISTORICAL_MESSAGES = 6_000
+MAX_HISTORICAL_MESSAGES_PER_DATE = 1_000
+MAX_OVERSIZED_ARCHIVE_DATES = 2
 PARSE_CANDIDATE_MULTIPLIER = 4
 TRUSTED_ARCHIVE_ORIGINS = frozenset(
     {
@@ -59,7 +67,12 @@ def _maximum_dates(range_days: float | None) -> int:
 
 
 class ZonianHistoricalProvider:
-    def __init__(self, client: JsonHttpClient, *, rng: random.Random | None = None) -> None:
+    def __init__(
+        self,
+        client: JsonHttpClient,
+        *,
+        rng: random.Random | None = None,
+    ) -> None:
         self._client = client
         self._rng = rng
 
@@ -101,8 +114,12 @@ class ZonianHistoricalProvider:
             if range_days is not None and range_days <= 90
             else sample_dates(available, maximum, self._rng)
         )
-        per_date_limit = max(1, MAX_HISTORICAL_MESSAGES // len(chosen))
+        per_date_limit = min(
+            MAX_HISTORICAL_MESSAGES_PER_DATE,
+            max(1, MAX_HISTORICAL_MESSAGES // len(chosen)),
+        )
         messages: list[Message] = []
+        oversized_dates = 0
         for start in range(0, len(chosen), HISTORICAL_FETCH_CONCURRENCY):
             dates = chosen[start : start + HISTORICAL_FETCH_CONCURRENCY]
             batches = await asyncio.gather(
@@ -115,6 +132,12 @@ class ZonianHistoricalProvider:
             for batch in batches:
                 if isinstance(batch, list):
                     messages.extend(batch)
+                elif isinstance(batch, HttpResponseTooLargeError):
+                    oversized_dates += 1
+            if oversized_dates >= MAX_OVERSIZED_ARCHIVE_DATES:
+                if messages:
+                    break
+                raise ArchiveTooLargeError(archive_year)
         return messages[:MAX_HISTORICAL_MESSAGES]
 
     async def _discover_origins(self, channel: str) -> tuple[str, ...]:
@@ -173,19 +196,34 @@ class ZonianHistoricalProvider:
     ) -> list[Message]:
         suffix = f"/{date.day}" if date.day else ""
         today = datetime.now(UTC).date().isoformat()
+        candidate_limit = message_limit * PARSE_CANDIDATE_MULTIPLIER
         for origin in origins:
-            url = f"{origin}/channel/{quote(channel)}/{date.year}/{date.month}{suffix}?jsonBasic=1"
-            payload = await self._client.get_json(
-                url,
-                timeout_ms=14_000,
-                max_bytes=ARCHIVE_RESPONSE_MAX_BYTES,
-                user_agent="KnowTheChat/1.0",
-                cache_ttl=300 if date_key(date) == today else 86_400,
+            cache_ttl = 300 if date_key(date) == today else 86_400
+            message_count = await self._fetch_message_count(
+                origin, channel, date, cache_ttl=cache_ttl
             )
+            maximum_offset = max(0, message_count - candidate_limit)
+            source = self._rng or random
+            offset = source.randrange(maximum_offset + 1) if maximum_offset else 0
+            url = (
+                f"{origin}/channel/{quote(channel)}/{date.year}/{date.month}{suffix}"
+                f"?jsonBasic=1&limit={candidate_limit}&offset={offset}"
+            )
+            try:
+                payload = await self._client.get_json(
+                    url,
+                    timeout_ms=14_000,
+                    max_bytes=ARCHIVE_RESPONSE_MAX_BYTES,
+                    user_agent="KnowTheChat/1.0",
+                    cache_ttl=cache_ttl,
+                )
+            except HttpResponseTooLargeError:
+                # Mirrors hold equivalent daily archives. Retrying the same date
+                # elsewhere would download another oversized body with no benefit.
+                raise
             raw_messages = payload.get("messages") if isinstance(payload, dict) else None
             if not isinstance(raw_messages, list):
                 continue
-            candidate_limit = message_limit * PARSE_CANDIDATE_MULTIPLIER
             candidates = _sample_evenly(raw_messages, candidate_limit)
             parsed: list[Message] = []
             for value in candidates:
@@ -199,6 +237,43 @@ class ZonianHistoricalProvider:
             if parsed:
                 return parsed
         return []
+
+    async def _fetch_message_count(
+        self, origin: str, channel: str, date: ArchiveDate, *, cache_ttl: int
+    ) -> int:
+        start, end = self._date_bounds(date)
+        payload = await self._client.get_json(
+            f"{origin}/channel/{quote(channel)}/stats?from={quote(start)}&to={quote(end)}",
+            timeout_ms=12_000,
+            max_bytes=ARCHIVE_STATS_MAX_BYTES,
+            user_agent="KnowTheChat/1.0",
+            cache_ttl=cache_ttl,
+        )
+        message_count = payload.get("messageCount") if isinstance(payload, dict) else None
+        return (
+            message_count
+            if isinstance(message_count, int) and not isinstance(message_count, bool)
+            else 0
+        )
+
+    @staticmethod
+    def _date_bounds(date: ArchiveDate) -> tuple[str, str]:
+        year, month = int(date.year), int(date.month)
+        day = int(date.day or 1)
+        start = datetime(year, month, day, tzinfo=UTC)
+        if date.day:
+            end = start.replace(hour=23, minute=59, second=59, microsecond=999_999)
+        else:
+            next_month = (
+                datetime(year + 1, 1, 1, tzinfo=UTC)
+                if month == 12
+                else datetime(year, month + 1, 1, tzinfo=UTC)
+            )
+            end = next_month - timedelta(milliseconds=1)
+        return (
+            start.isoformat().replace("+00:00", "Z"),
+            end.isoformat().replace("+00:00", "Z"),
+        )
 
 
 class RecentMessagesProvider:

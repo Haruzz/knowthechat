@@ -11,6 +11,23 @@ class ArchiveYearUnavailableError(Exception):
         super().__init__(f"No public archive is available for {year}.")
 
 
+class ArchiveTooLargeError(Exception):
+    def __init__(self, year: int | None) -> None:
+        self.year = year
+        period = f"The {year} archive" if year is not None else "The requested archive"
+        super().__init__(
+            f"{period} for this channel is too large to process safely. Try a shorter lookback."
+        )
+
+
+class HttpResponseTooLargeError(Exception):
+    """An upstream body exceeded the caller's explicit byte limit."""
+
+    def __init__(self, maximum: int) -> None:
+        self.maximum = maximum
+        super().__init__(f"Upstream response exceeded {maximum} bytes.")
+
+
 class JsonHttpClient(Protocol):
     async def get_json(
         self,

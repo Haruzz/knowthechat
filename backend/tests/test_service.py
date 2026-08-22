@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 
 import pytest
 
 from api_models import PublicArchiveRequest
 from domain.models import Message
-from providers.protocols import ArchiveYearUnavailableError
-from services.public_archive import NoPublicArchiveError, PublicArchiveService
+from providers.protocols import ArchiveTooLargeError, ArchiveYearUnavailableError
+from services.public_archive import NoPublicArchiveError, PublicArchiveService, StructuredLogger
 
 
 def make_message(index: int, *, user_id: str = "u1", name: str = "Alice") -> Message:
@@ -85,6 +86,73 @@ def service(historical, recent=(), emotes=()) -> PublicArchiveService:
     )
 
 
+def test_structured_logger_includes_a_visible_message(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    StructuredLogger()(
+        "request_summary",
+        message="Public archive request completed.",
+        total=3,
+    )
+
+    assert json.loads(capsys.readouterr().out) == {
+        "message": "Public archive request completed.",
+        "event": "request_summary",
+        "total": 3,
+    }
+
+
+@pytest.mark.asyncio
+async def test_request_emits_one_consolidated_success_log() -> None:
+    events: list[tuple[str, dict[str, object]]] = []
+    worker = PublicArchiveService(
+        FakeHistorical([make_message(index) for index in range(3)]),
+        [],
+        [],
+        now_ms=lambda: 1_700_100_000_000,
+        logger=lambda event, **fields: events.append((event, fields)),
+    )
+
+    response = await worker.execute(
+        PublicArchiveRequest.model_validate(
+            {"channel": "channel", "archiveYear": 2023, "chatterPool": 25}
+        )
+    )
+
+    assert response.total == 3
+    assert len(events) == 1
+    event, fields = events[0]
+    assert event == "request_summary"
+    assert fields["message"] == "Public archive request completed."
+    assert fields["outcome"] == "success"
+    assert fields["historical_messages"] == 3
+    assert fields["accepted_messages"] == 3
+    assert fields["response_messages"] == 3
+
+
+@pytest.mark.asyncio
+async def test_request_emits_one_consolidated_not_found_log() -> None:
+    events: list[tuple[str, dict[str, object]]] = []
+    worker = PublicArchiveService(
+        FakeHistorical(error=ArchiveYearUnavailableError(2022)),
+        [],
+        [],
+        now_ms=lambda: 1_700_100_000_000,
+        logger=lambda event, **fields: events.append((event, fields)),
+    )
+
+    with pytest.raises(NoPublicArchiveError):
+        await worker.execute(
+            PublicArchiveRequest.model_validate({"channel": "channel", "archiveYear": 2022})
+        )
+
+    assert len(events) == 1
+    event, fields = events[0]
+    assert event == "request_summary"
+    assert fields["outcome"] == "not_found"
+    assert fields["historical_error_type"] == "ArchiveYearUnavailableError"
+
+
 @pytest.mark.asyncio
 async def test_sufficient_historical_archive_skips_recent_fallback() -> None:
     historical = [
@@ -131,6 +199,15 @@ async def test_unavailable_calendar_year_has_a_specific_error() -> None:
     with pytest.raises(NoPublicArchiveError, match="No public archive is available for 2022"):
         await worker.execute(
             PublicArchiveRequest.model_validate({"channel": "channel", "archiveYear": 2022})
+        )
+
+
+@pytest.mark.asyncio
+async def test_oversized_calendar_year_has_a_specific_error() -> None:
+    worker = service(FakeHistorical(error=ArchiveTooLargeError(2025)))
+    with pytest.raises(NoPublicArchiveError, match=r"2025 archive.*too large"):
+        await worker.execute(
+            PublicArchiveRequest.model_validate({"channel": "channel", "archiveYear": 2025})
         )
 
 

@@ -7,6 +7,8 @@ from typing import Any
 from js import AbortSignal  # pyright: ignore[reportMissingImports, reportAttributeAccessIssue]
 from workers import fetch
 
+from providers.protocols import HttpResponseTooLargeError
+
 
 async def cancel_body(source: Any, reason: str) -> None:
     if source.body is None:
@@ -61,13 +63,13 @@ class CloudflareJsonHttpClient:
             try:
                 if int(raw_content_length) > max_bytes:
                     await cancel_body(response, "body exceeded configured limit")
-                    return None
+                    raise HttpResponseTooLargeError(max_bytes)
             except ValueError:
                 await cancel_body(response, "invalid content-length")
                 return None
         body = await read_bounded_body(response, max_bytes)
         if body is None:
-            return None
+            raise HttpResponseTooLargeError(max_bytes)
         try:
             return json.loads(body)
         except (UnicodeDecodeError, json.JSONDecodeError):
