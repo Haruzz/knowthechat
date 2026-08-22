@@ -31,12 +31,13 @@ Before adding Python packages, check Cloudflare's current Python package support
 
 The Python HTTP adapter passes Cloudflare `cf` cache settings to outbound `fetch` calls:
 
+- Zonian instance discovery and per-instance date lists: 300 seconds
 - current-day historical archive: 300 seconds
 - completed historical days: 86,400 seconds
 - emote-provider responses: 3,600 seconds
 - final dynamic API response: `Cache-Control: no-store`
 
-Upstream bodies are streamed with explicit size bounds even if `Content-Length` is absent. Requests have timeouts and the incoming JSON body is limited to 16 KiB.
+Discovered archive origins are accepted only when they match the source-controlled trusted-host allowlist. At most six instances are consulted, their date lists are merged, and the existing limits of 12 selected dates, 12,000 historical messages and two concurrent archive downloads remain in force. Upstream bodies are streamed with explicit size bounds even if `Content-Length` is absent. Requests have timeouts and the incoming JSON body is limited to 16 KiB.
 
 ## Observability
 
@@ -72,12 +73,18 @@ Then open `http://127.0.0.1:8787`.
 ## Deployment and rollback
 
 The connected Cloudflare Workers Builds project watches `main` and keeps its two
-dashboard commands intentionally short:
+GitHub Actions is the only production deployment controller. Store these encrypted
+repository secrets in GitHub Actions:
 
 ```text
-Build command:  npm run check
-Deploy command: npm run deploy:cloudflare
+CLOUDFLARE_ACCOUNT_ID
+CLOUDFLARE_API_TOKEN
 ```
+
+The token should be limited to this Cloudflare account and Worker deployment
+permissions. Keep Cloudflare's automatic Git deployment disabled: pull requests
+run a deployment dry run, while `main` deploys with `npm run deploy:cloudflare`
+only after formatting, linting, type checks, and tests pass.
 
 Cloudflare's build image includes Python 3.13 but does not document `uv` as a
 preinstalled tool. Every repository command that needs `uv` therefore goes through

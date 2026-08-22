@@ -6,6 +6,7 @@ import pytest
 
 from api_models import PublicArchiveRequest
 from domain.models import Message
+from providers.protocols import ArchiveYearUnavailableError
 from services.public_archive import NoPublicArchiveError, PublicArchiveService
 
 
@@ -37,7 +38,11 @@ class FakeHistorical:
         self.error = error
 
     async def fetch(
-        self, channel: str, cutoff_ms: float, range_days: float | None
+        self,
+        channel: str,
+        cutoff_ms: float,
+        range_days: float | None,
+        archive_year: int | None = None,
     ) -> list[Message]:
         if self.error:
             raise self.error
@@ -89,7 +94,7 @@ async def test_sufficient_historical_archive_skips_recent_fallback() -> None:
     recent = FakeRecent([])
     response = await service(FakeHistorical(historical), [recent]).execute(
         PublicArchiveRequest.model_validate(
-            {"channel": "channel", "rangeDays": "all", "chatterPool": 25}
+            {"channel": "channel", "rangeDays": 90, "chatterPool": 25}
         )
     )
     assert recent.calls == 0
@@ -101,11 +106,32 @@ async def test_sparse_historical_archive_uses_recent_fallback() -> None:
     recent = FakeRecent([])
     response = await service(FakeHistorical([make_message(i) for i in range(3)]), [recent]).execute(
         PublicArchiveRequest.model_validate(
-            {"channel": "channel", "rangeDays": "all", "chatterPool": 25}
+            {"channel": "channel", "rangeDays": 90, "chatterPool": 25}
         )
     )
     assert recent.calls == 1
     assert response.total == 3
+
+
+@pytest.mark.asyncio
+async def test_calendar_year_never_mixes_in_recent_messages() -> None:
+    recent = FakeRecent([])
+    response = await service(FakeHistorical([make_message(i) for i in range(3)]), [recent]).execute(
+        PublicArchiveRequest.model_validate(
+            {"channel": "channel", "archiveYear": 2023, "chatterPool": 25}
+        )
+    )
+    assert recent.calls == 0
+    assert response.total == 3
+
+
+@pytest.mark.asyncio
+async def test_unavailable_calendar_year_has_a_specific_error() -> None:
+    worker = service(FakeHistorical(error=ArchiveYearUnavailableError(2022)))
+    with pytest.raises(NoPublicArchiveError, match="No public archive is available for 2022"):
+        await worker.execute(
+            PublicArchiveRequest.model_validate({"channel": "channel", "archiveYear": 2022})
+        )
 
 
 @pytest.mark.asyncio
@@ -123,7 +149,7 @@ async def test_emote_failure_does_not_block_response() -> None:
         FakeHistorical([make_message(i) for i in range(3)]),
         [],
         [FakeEmotes(error=RuntimeError("down"))],
-    ).execute(PublicArchiveRequest.model_validate({"channel": "channel", "rangeDays": "all"}))
+    ).execute(PublicArchiveRequest.model_validate({"channel": "channel", "rangeDays": 90}))
     assert response.total == 3
 
 
@@ -137,6 +163,6 @@ async def test_exact_and_near_duplicates_are_removed() -> None:
         normalized=first.normalized.replace("token1gamma", "token4gamma"),
     )
     response = await service(FakeHistorical([first, exact_id, exact_text, near])).execute(
-        PublicArchiveRequest.model_validate({"channel": "channel", "rangeDays": "all"})
+        PublicArchiveRequest.model_validate({"channel": "channel", "rangeDays": 90})
     )
     assert response.total == 1

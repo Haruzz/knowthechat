@@ -15,9 +15,12 @@ POST /api/public-archive
   → bounded ASGI body read
   → FastAPI + Pydantic PublicArchiveRequest validation
   → PublicArchiveService
-      → sample available Zonian archive dates
+      → discover trusted public log instances through Zonian
+      → merge the instances' available archive dates
+      → reject an unavailable calendar year before archive downloads
+      → sample at most 12 dates from the selected period
       → fetch and parse historical messages
-      → use recent providers if history is sparse
+      → use recent providers only when a rolling 30/90-day period is sparse
       → filter bots/events/low-quality messages
       → remove exact and near duplicates
       → rank recognizable chatters
@@ -27,7 +30,7 @@ POST /api/public-archive
   → JSON response with Cache-Control: no-store
 ```
 
-Provider failures are isolated where possible. Historical failure can trigger recent-message fallback; one failed emote provider does not discard the archive. If no archive source provides usable data, the API returns the preserved 404 error contract.
+Provider failures are isolated where possible. Historical failure can trigger recent-message fallback for rolling periods; calendar-year requests never mix in current messages. One failed emote provider does not discard the archive. If a selected year has no advertised dates, the API returns a specific 404 before downloading archive bodies. If no source provides usable data, the API returns the generic 404 error contract.
 
 ## Code boundaries
 
