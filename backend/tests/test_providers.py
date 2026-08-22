@@ -72,7 +72,7 @@ async def test_zonian_provider_samples_and_caches_completed_day() -> None:
         "https://logs.zonian.dev/channel/channel/stats"
         "?from=2024-01-02T00%3A00%3A00Z&to=2024-01-02T23%3A59%3A59.999999Z"
     )
-    day_url = "https://logs.zonian.dev/channel/channel/2024/01/2?jsonBasic=1&limit=4000&offset=0"
+    day_url = "https://logs.zonian.dev/channel/channel/2024/01/2?jsonBasic=1&limit=2000&offset=0"
     client = FakeHttpClient(
         {
             list_url: {"availableLogs": [{"year": "2024", "month": "01", "day": "2"}]},
@@ -98,9 +98,9 @@ async def test_zonian_provider_samples_a_bounded_window_from_a_busy_day() -> Non
         "https://logs.zonian.dev/channel/channel/stats"
         "?from=2025-01-27T00%3A00%3A00Z&to=2025-01-27T23%3A59%3A59.999999Z"
     )
-    offset = random.Random(7).randrange(6_001)
+    offset = random.Random(7).randrange(8_001)
     day_url = (
-        f"https://logs.zonian.dev/channel/channel/2025/01/27?jsonBasic=1&limit=4000&offset={offset}"
+        f"https://logs.zonian.dev/channel/channel/2025/01/27?jsonBasic=1&limit=2000&offset={offset}"
     )
     client = FakeHttpClient(
         {
@@ -124,7 +124,7 @@ async def test_discovered_instances_are_unioned_for_calendar_years() -> None:
     logxx_list = "https://logxx.dev/list?channel=channel"
     spanix_list = "https://logs.spanix.team/list?channel=channel"
     spanix_day = (
-        "https://logs.spanix.team/channel/channel/2024/09/11?jsonBasic=1&limit=4000&offset=0"
+        "https://logs.spanix.team/channel/channel/2024/09/11?jsonBasic=1&limit=2000&offset=0"
     )
     client = FakeHttpClient(
         {
@@ -256,7 +256,7 @@ async def test_long_range_spans_history_with_bounded_concurrency() -> None:
     for date in dates:
         url = (
             f"https://logs.zonian.dev/channel/channel/{date['year']}/{date['month']}/1"
-            "?jsonBasic=1&limit=2000&offset=0"
+            "?jsonBasic=1&limit=1000&offset=0"
         )
         responses[url] = {"messages": [historical_message(f"{date['year']}-{date['month']}")]}
 
@@ -305,7 +305,7 @@ async def test_historical_messages_have_a_hard_global_budget() -> None:
     for date in dates:
         url = (
             f"https://logs.zonian.dev/channel/channel/2024/{date['month']}/1"
-            "?jsonBasic=1&limit=2000&offset=0"
+            "?jsonBasic=1&limit=1000&offset=0"
         )
         responses[url] = {
             "messages": [
