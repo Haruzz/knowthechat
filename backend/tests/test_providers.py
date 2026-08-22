@@ -11,11 +11,13 @@ from providers.archives import (
     HISTORICAL_FETCH_CONCURRENCY,
     MAX_HISTORICAL_DATES,
     MAX_HISTORICAL_MESSAGES,
+    TRUSTED_ARCHIVE_ORIGINS,
     RecentMessagesProvider,
     ZonianHistoricalProvider,
     _sample_evenly,
 )
 from providers.emotes import BetterTtvProvider, FrankerFaceZProvider, SevenTvProvider
+from providers.protocols import ArchiveYearUnavailableError
 
 
 class FakeHttpClient:
@@ -73,6 +75,60 @@ async def test_zonian_provider_samples_and_caches_completed_day() -> None:
     assert list_call["cache_ttl"] == ARCHIVE_LIST_CACHE_TTL
     assert day_call["cache_ttl"] == 86_400
     assert day_call["max_bytes"] == ARCHIVE_RESPONSE_MAX_BYTES
+
+
+@pytest.mark.asyncio
+async def test_discovered_instances_are_unioned_for_calendar_years() -> None:
+    discovery_url = "https://logs.zonian.dev/api/channel"
+    logxx_list = "https://logxx.dev/list?channel=channel"
+    spanix_list = "https://logs.spanix.team/list?channel=channel"
+    spanix_day = "https://logs.spanix.team/channel/channel/2024/09/11?jsonBasic=1"
+    client = FakeHttpClient(
+        {
+            discovery_url: {
+                "channelLogs": {
+                    "instances": [
+                        "https://logxx.dev",
+                        "https://untrusted.example",
+                        "https://logs.spanix.team",
+                    ]
+                }
+            },
+            logxx_list: {"availableLogs": [{"year": "2025", "month": "06", "day": "14"}]},
+            spanix_list: {"availableLogs": [{"year": "2024", "month": "09", "day": "11"}]},
+            spanix_day: {
+                "messages": [historical_message("spanix-2024", "2024-09-11T18:40:03.907Z")]
+            },
+        }
+    )
+
+    messages = await ZonianHistoricalProvider(client).fetch("channel", 0, None, 2024)
+
+    assert [message.id for message in messages] == ["spanix-2024"]
+    assert "https://logs.spanix.team" in TRUSTED_ARCHIVE_ORIGINS
+    assert any(call["url"] == spanix_list for call in client.calls)
+    assert any(call["url"] == spanix_day for call in client.calls)
+    assert not any("untrusted.example" in call["url"] for call in client.calls)
+    assert not any("/2025/" in call["url"] for call in client.calls)
+
+
+@pytest.mark.asyncio
+async def test_unavailable_year_stops_before_archive_downloads() -> None:
+    client = FakeHttpClient(
+        {
+            "https://logs.zonian.dev/api/channel": {
+                "channelLogs": {"instances": ["https://logs.spanix.team"]}
+            },
+            "https://logs.spanix.team/list?channel=channel": {
+                "availableLogs": [{"year": "2024", "month": "09", "day": "11"}]
+            },
+        }
+    )
+
+    with pytest.raises(ArchiveYearUnavailableError, match="2023"):
+        await ZonianHistoricalProvider(client).fetch("channel", 0, None, 2023)
+
+    assert not any("/channel/" in call["url"] for call in client.calls)
 
 
 class TrackingHttpClient(FakeHttpClient):

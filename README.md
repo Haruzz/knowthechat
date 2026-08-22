@@ -8,7 +8,8 @@ Know The Chat is a Twitch chat guessing game. Its React single-page application 
 Browser
   ├─ GET /*                    → Workers Static Assets → React + Vite
   └─ POST /api/public-archive → Python Worker
-                                  ├─ logs.zonian.dev
+                                  ├─ Zonian archive-instance discovery
+                                  ├─ trusted public log instances
                                   ├─ recent-messages fallbacks
                                   └─ 7TV / BetterTTV / FrankerFaceZ
 ```
@@ -89,12 +90,14 @@ Do not run it casually: it builds the Vite frontend and deploys the combined ass
 
 ## CI/CD
 
-GitHub Actions runs for every pull request and every push to `main`:
+GitHub Actions owns the complete validation and production deployment pipeline:
 
 1. **Test**
    - **Pre-commit:** Prettier formatting plus frontend ESLint and backend Ruff
    - **Type checks:** strict TypeScript and Pyright
    - **Tests:** Vitest and pytest
-2. **Build:** creates the Vite production bundle and performs a complete Cloudflare deployment dry run
+2. **Build and deploy:**
+   - pull requests create the Vite production bundle and perform a complete Cloudflare deployment dry run
+   - `main` creates the production bundle and deploys the combined Worker only after the Test job passes
 
-Pull requests from feature branches therefore have to pass both jobs before they are ready to merge. A push to `main` runs the same GitHub checks. Cloudflare Workers Builds also watches `main`; it independently runs `npm run check` as its build gate and runs `npm run deploy:cloudflare` only when that gate succeeds. GitHub Actions never receives Cloudflare deployment credentials and does not deploy production itself.
+Pull requests from feature branches therefore have to pass both jobs before they are ready to merge. A push to `main` runs the same checks and deploys only after they succeed. Cloudflare's automatic Git deployment must remain disabled so it cannot race this gated pipeline. The repository stores `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` as encrypted GitHub Actions secrets; neither value belongs in source control.
