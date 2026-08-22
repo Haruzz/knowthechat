@@ -17,6 +17,10 @@ describe("Who Said It frontend", () => {
       (screen.getByLabelText("Archive period") as HTMLSelectElement).value,
     ).toBe(`year:${currentYear}`);
     expect(screen.getByRole("button", { name: /open the case/i })).toBeTruthy();
+    const logo = screen.getByRole("img", { name: "Who Said It?" });
+    expect(logo.classList.contains("is-loaded")).toBe(false);
+    fireEvent.load(logo);
+    expect(logo.classList.contains("is-loaded")).toBe(true);
   });
 
   it("issues the same-origin public archive request", async () => {

@@ -484,7 +484,12 @@ export default function WhoSaidIt() {
       <main className="simple-shell">
         <section className="simple-card">
           <div className="brand-lockup logo-only">
-            <img className="brand-logo" src="/logo.png" alt="Who Said It?" />
+            <img
+              className="brand-logo"
+              src="/logo.png"
+              alt="Who Said It?"
+              onLoad={(event) => event.currentTarget.classList.add("is-loaded")}
+            />
           </div>
           <h1>
             How well do you know
@@ -575,6 +580,7 @@ export default function WhoSaidIt() {
             className="brand-logo mini-logo"
             src="/logo.png"
             alt="Who Said It?"
+            onLoad={(event) => event.currentTarget.classList.add("is-loaded")}
           />
         </button>
         <div className="game-channel">
