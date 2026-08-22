@@ -90,14 +90,12 @@ Do not run it casually: it builds the Vite frontend and deploys the combined ass
 
 ## CI/CD
 
-GitHub Actions owns the complete validation and production deployment pipeline:
+GitHub Actions validates pull requests:
 
 1. **Test**
    - **Pre-commit:** Prettier formatting plus frontend ESLint and backend Ruff
    - **Type checks:** strict TypeScript and Pyright
    - **Tests:** Vitest and pytest
-2. **Build and deploy:**
-   - pull requests create the Vite production bundle and perform a complete Cloudflare deployment dry run
-   - `main` creates the production bundle and deploys the combined Worker only after the Test job passes
+2. **Build:** creates the Vite production bundle and performs a complete Cloudflare deployment dry run
 
-Pull requests from feature branches therefore have to pass both jobs before they are ready to merge. A push to `main` runs the same checks and deploys only after they succeed. Cloudflare's automatic Git deployment must remain disabled so it cannot race this gated pipeline. The repository stores `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` as encrypted GitHub Actions secrets; neither value belongs in source control.
+Pull requests therefore have to pass both jobs before they are ready to merge. After a merge or direct push to `main`, Cloudflare Workers Builds checks out that commit, builds the frontend, and deploys the combined Worker. Production credentials stay inside Cloudflare; GitHub Actions does not deploy and does not require Cloudflare secrets.
