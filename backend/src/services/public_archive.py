@@ -20,7 +20,7 @@ from domain.duplicates import NearDuplicateIndex
 from domain.models import Message
 from domain.parsing import parse_irc_message
 from domain.ranking import rank_chatters
-from domain.scoring import score_recognizability
+from domain.scoring import difficulty_for_age, score_recognizability
 from domain.text import add_third_party_spans
 from providers.protocols import (
     ArchiveProviderUnavailableError,
@@ -191,10 +191,11 @@ class PublicArchiveService:
             for chatter in ranked
         ]
         quotes: list[QuoteResponse] = []
+        reference_ms = self._now_ms()
         for message in messages:
             if message.user_id not in eligible:
                 continue
-            quality, difficulty = score_recognizability(message.body)
+            quality = score_recognizability(message.body)
             if quality < 4:
                 continue
             spans = add_third_party_spans(message.body, message.emotes, emotes)
@@ -209,7 +210,7 @@ class PublicArchiveService:
                     ],
                     sentAt=message.sent_at,
                     quality=quality,
-                    difficulty=difficulty,
+                    difficulty=difficulty_for_age(message.sent_at, reference_ms),
                 )
             )
         dates = [message.sent_at for message in messages if math.isfinite(message.sent_at)]

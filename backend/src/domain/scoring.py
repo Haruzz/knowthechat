@@ -5,10 +5,10 @@ from typing import Literal
 
 from domain.text import normalize_message
 
+DAY_MS = 86_400_000
 
-def score_recognizability(
-    body: str,
-) -> tuple[int, Literal["easy", "medium", "hard"]]:
+
+def score_recognizability(body: str) -> int:
     words = [word for word in normalize_message(body).split(" ") if word]
     unique_ratio = len(set(words)) / max(len(words), 1)
     average_word_length = sum(map(len, words)) / max(len(words), 1)
@@ -29,5 +29,13 @@ def score_recognizability(
         score += 1
     if unique_ratio < 0.5:
         score -= 2
-    difficulty = "easy" if score >= 7 else "medium" if score >= 5 else "hard"
-    return score, difficulty
+    return score
+
+
+def difficulty_for_age(sent_at_ms: float, now_ms: float) -> Literal["easy", "medium", "hard"]:
+    age_ms = max(0, now_ms - sent_at_ms)
+    if age_ms < 30 * DAY_MS:
+        return "easy"
+    if age_ms <= 180 * DAY_MS:
+        return "medium"
+    return "hard"

@@ -1,10 +1,4 @@
-import {
-  CSSProperties,
-  SubmitEvent,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { CSSProperties, SubmitEvent, useEffect, useState } from "react";
 
 type Chatter = {
   id: string;
@@ -249,7 +243,6 @@ export default function WhoSaidIt() {
   const [mode, setMode] = useState<"unlimited" | "10">("unlimited");
   const [chatterPool, setChatterPool] = useState("50");
   const [rounds, setRounds] = useState<Round[]>([]);
-  const [chatters, setChatters] = useState<Chatter[]>([]);
   const [range, setRange] = useState<{ oldest: number; newest: number } | null>(
     null,
   );
@@ -257,10 +250,6 @@ export default function WhoSaidIt() {
   const [answered, setAnswered] = useState<string | null>(null);
   const [correct, setCorrect] = useState(0);
   const current = rounds[index];
-  const avatars = useMemo(
-    () => new Map(chatters.map((c) => [c.name, c.avatar])),
-    [chatters],
-  );
 
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
@@ -382,7 +371,6 @@ export default function WhoSaidIt() {
       setLoadingProgress(100);
       await new Promise((resolve) => setTimeout(resolve, 260));
       setChannel(data.channel);
-      setChatters(data.chatters);
       setRange(data.range);
       setRounds(built);
       setIndex(0);
@@ -585,9 +573,10 @@ export default function WhoSaidIt() {
 
   const rangeText = formatArchiveRange(range);
   const completedQuestions = index + (answered ? 1 : 0);
+  const roundProgress = ((index + 1) / rounds.length) * 100;
   return (
     <main className="game-shell" translate="no">
-      <div className="game-top">
+      <header className="game-top">
         <button
           className="brand mini"
           onClick={reset}
@@ -599,92 +588,109 @@ export default function WhoSaidIt() {
             alt="Who Said It?"
           />
         </button>
+        <div className="game-context">
+          <p
+            className="game-period"
+            aria-label={`Available chat period: ${rangeText}`}
+          >
+            Chats from {rangeText}
+          </p>
+          <div
+            className="game-stats"
+            aria-label={`Question ${index + 1} of ${rounds.length}, score ${correct} of ${completedQuestions}`}
+            aria-live="polite"
+          >
+            <div className="game-stat">
+              <span>Question</span>
+              <strong>
+                {index + 1} <small>/ {rounds.length}</small>
+              </strong>
+            </div>
+            <span className="game-stats-divider" aria-hidden="true" />
+            <div className="game-stat">
+              <span>Correct</span>
+              <strong>
+                {correct} <small>/ {completedQuestions}</small>
+              </strong>
+            </div>
+          </div>
+          <div
+            className="round-progress"
+            role="progressbar"
+            aria-label="Game progress"
+            aria-valuemin={1}
+            aria-valuemax={rounds.length}
+            aria-valuenow={index + 1}
+          >
+            <span style={{ width: `${roundProgress}%` }} />
+          </div>
+        </div>
         <div className="game-channel">
           {streamer && <img src={streamer.logo} alt="" />}
           <div>
+            <span>Playing</span>
             <strong>#{streamer?.name ?? channel}</strong>
           </div>
         </div>
-      </div>
-      <div className="game-context">
-        <p
-          className="game-period"
-          aria-label={`Available chat period: ${rangeText}`}
+      </header>
+      <div className="game-stage">
+        <section
+          key={current.id}
+          className={`game-card ${answered ? (answered === current.author ? "answer-correct" : "answer-wrong") : ""}`}
         >
-          {rangeText}
-        </p>
-        <div
-          className="game-stats"
-          aria-label={`Question ${index + 1} of ${rounds.length}, score ${correct} of ${completedQuestions}`}
-          aria-live="polite"
-        >
-          <span>
-            QUESTION <b>{index + 1}</b> OF {rounds.length}
-          </span>
-          <i aria-hidden="true">•</i>
-          <span>
-            SCORE <b>{correct}</b> / {completedQuestions}
-          </span>
-        </div>
-      </div>
-      <section
-        key={current.id}
-        className={`game-card ${answered ? (answered === current.author ? "answer-correct" : "answer-wrong") : ""}`}
-      >
-        <p className="eyebrow">
-          {new Date(current.sentAt).toLocaleDateString("en-US", {
-            year: "numeric",
-            month: "short",
-            day: "numeric",
-          })}{" "}
-          ·{" "}
-          <span className={`difficulty ${current.difficulty}`}>
-            {current.difficulty}
-          </span>
-        </p>
-        <blockquote>“{renderQuote(current)}”</blockquote>
-        <p className="prompt">Who said it?</p>
-        <div className="choices">
-          {current.choices.map((name, i) => (
-            <button
-              key={name}
-              onClick={() => answer(name)}
-              className={
-                answered
-                  ? name === current.author
-                    ? "right"
-                    : name === answered
-                      ? "wrong"
-                      : "dim"
-                  : ""
-              }
-            >
-              <span className="choice-avatar">
-                {avatars.get(name) ?? name.slice(0, 2).toUpperCase()}
-              </span>
-              {name}
-              <span className="choice-key">{i + 1}</span>
-            </button>
-          ))}
-        </div>
-        {answered && (
-          <div
-            className={
-              answered === current.author
-                ? "result good result-action"
-                : "result bad result-action"
-            }
-          >
-            <button onClick={next}>
-              {index + 1 === rounds.length ? "See results →" : "Next message →"}
-            </button>
+          <p className="message-meta">
+            <time dateTime={new Date(current.sentAt).toISOString()}>
+              {new Date(current.sentAt).toLocaleDateString("en-US", {
+                year: "numeric",
+                month: "long",
+                day: "numeric",
+              })}
+            </time>
+            <span aria-hidden="true">·</span>
+            <span className={`difficulty ${current.difficulty}`}>
+              {current.difficulty}
+            </span>
+          </p>
+          <blockquote>“{renderQuote(current)}”</blockquote>
+          <div className="answer-area">
+            <p className="prompt">Who said it?</p>
+            <div className="choices">
+              {current.choices.map((name, i) => (
+                <button
+                  key={name}
+                  onClick={() => answer(name)}
+                  className={
+                    answered
+                      ? name === current.author
+                        ? "right"
+                        : name === answered
+                          ? "wrong"
+                          : "dim"
+                      : ""
+                  }
+                >
+                  <span className="choice-avatar" aria-hidden="true">
+                    {name.slice(0, 2).toUpperCase()}
+                  </span>
+                  <span className="choice-name">{name}</span>
+                  <span className="choice-key" aria-hidden="true">
+                    {i + 1}
+                  </span>
+                </button>
+              ))}
+            </div>
+            {answered && (
+              <div className="result result-action">
+                <button onClick={next}>
+                  {index + 1 === rounds.length
+                    ? "See results →"
+                    : "Next message →"}
+                </button>
+              </div>
+            )}
           </div>
-        )}
-      </section>
-      <p className="game-foot">
-        Multi-date chatters · balanced authors · recognizable messages · no
-        repeats
-      </p>
+        </section>
+      </div>
       <CreatorCredit />
     </main>
   );

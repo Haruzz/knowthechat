@@ -195,6 +195,7 @@ async def test_sparse_historical_archive_does_not_use_recent_fallback() -> None:
     assert recent.calls == 0
     assert response.total == 3
     assert response.source == "historical"
+    assert {quote.difficulty for quote in response.quotes} == {"easy"}
 
 
 @pytest.mark.asyncio

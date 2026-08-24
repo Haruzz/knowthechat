@@ -158,12 +158,16 @@ describe("Who Said It frontend", () => {
     expect(
       screen.getByLabelText("Available chat period: Jan 25 – Aug 24, 2026"),
     ).toBeTruthy();
+    expect(screen.getByText("Chats from Jan 25 – Aug 24, 2026")).toBeTruthy();
+    expect(screen.getByLabelText("Game progress")).toBeTruthy();
+    expect(screen.getByText("Correct")).toBeTruthy();
 
     const firstQuote = screen.getByText(/Distinctive message number/i);
     const firstMessage = firstQuote.textContent;
     fireEvent.click(
       screen.getAllByRole("button", { name: /Alice|Bob|Carol/i })[0],
     );
+    expect(screen.queryByText(/That’s right\.|That was /)).toBeNull();
     fireEvent.click(
       await screen.findByRole("button", { name: /next message/i }),
     );

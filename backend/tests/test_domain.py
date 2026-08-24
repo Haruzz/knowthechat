@@ -9,7 +9,7 @@ from domain.models import ArchiveDate, Message
 from domain.parsing import parse_historical_message, parse_irc_message, unescape_irc_tag
 from domain.ranking import rank_chatters
 from domain.sampling import sample_dates, sample_even_dates
-from domain.scoring import score_recognizability
+from domain.scoring import DAY_MS, difficulty_for_age, score_recognizability
 from domain.text import (
     add_third_party_spans,
     normalize_message,
@@ -82,15 +82,16 @@ def test_filters_and_scoring_contract() -> None:
         "four plain words right here",
         "In 2025, did somebody actually say this extraordinarily specific thing?",
     ]
-    python_scores = [
-        {"quality": quality, "difficulty": difficulty}
-        for quality, difficulty in map(score_recognizability, scoring_cases)
-    ]
-    assert python_scores == [
-        {"quality": 6, "difficulty": "medium"},
-        {"quality": 3, "difficulty": "hard"},
-        {"quality": 8, "difficulty": "easy"},
-    ]
+    assert list(map(score_recognizability, scoring_cases)) == [6, 3, 8]
+
+
+def test_message_age_determines_difficulty_at_fixed_boundaries() -> None:
+    now_ms = 2_000_000_000_000
+    assert difficulty_for_age(now_ms - 29 * DAY_MS, now_ms) == "easy"
+    assert difficulty_for_age(now_ms - 30 * DAY_MS, now_ms) == "medium"
+    assert difficulty_for_age(now_ms - 180 * DAY_MS, now_ms) == "medium"
+    assert difficulty_for_age(now_ms - 181 * DAY_MS, now_ms) == "hard"
+    assert difficulty_for_age(now_ms + DAY_MS, now_ms) == "easy"
 
 
 def _irc_message(

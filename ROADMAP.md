@@ -42,7 +42,9 @@ an official partnership or endorsement.
 - [NadjaPedersen](https://www.twitch.tv/videos/2854152776?t=01h41m04s)
 - [Jaxstyle](https://www.twitch.tv/videos/2854155013?t=01h52m02s)
 - [Mat_](https://www.twitch.tv/videos/2853522955?t=02h59m06s)
-- [norbandit97 — videos](https://www.twitch.tv/videos/2853552090?t=02h28m02s)
+- [norbandit97](https://www.twitch.tv/videos/2853552090?t=02h28m02s)
+- [MiieBiie](https://www.twitch.tv/videos/2855381673?t=02h06m19s)
+- [apollohacky](https://www.twitch.tv/videos/2855381673?t=02h06m19s)
 
 ## Contributing ideas
 
