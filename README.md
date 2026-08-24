@@ -18,6 +18,13 @@ One Worker deployment owns `knowthechat.com` and `www.knowthechat.com`. Cloudfla
 
 See [the architecture guide](docs/architecture.md) and [Cloudflare operations guide](docs/cloudflare.md).
 
+## Roadmap
+
+Know The Chat is under active development. The [public roadmap and research
+notes](ROADMAP.md) collect gameplay ideas, open product questions, and Twitch
+streamers who have played the game. The roadmap is a backlog, not a commitment
+to implement every item.
+
 ## Prerequisites
 
 - Node.js 22.13 or newer
