@@ -6,12 +6,16 @@
   width: 104px;
   height: 104px;
   object-fit: contain;
-  opacity: 0;
-  transition: opacity 120ms ease-out;
+  animation: brand-logo-in 120ms ease-out;
   filter: drop-shadow(0 12px 30px #7658e877);
 }
-.brand-logo.is-loaded {
-  opacity: 1;
+@keyframes brand-logo-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 .mini-logo {
   width: 48px;
@@ -280,7 +284,7 @@
 .game-channel {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
   text-align: right;
 }
 .game-channel > img {
@@ -291,20 +295,37 @@
   border: 2px solid #8c72ed;
   box-shadow: 0 0 0 4px #7658e822;
 }
-.game-channel strong,
-.game-channel small {
-  display: block;
-}
 .game-channel strong {
+  display: block;
   color: #fff;
-  font-size: 12px;
-  letter-spacing: 0.04em;
+  font-size: clamp(18px, 2vw, 22px);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.02em;
 }
-.game-channel small {
-  margin-top: 3px;
-  color: #918a9f;
-  font-size: 9px;
-  letter-spacing: 0.08em;
+.game-stats {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 10px;
+}
+.game-stats span {
+  margin: 0;
+  color: #aaa2b8;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+}
+.game-stats b {
+  color: #fff;
+  font-size: 17px;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+.game-stats i {
+  color: #5c546c;
+  font-size: 10px;
+  font-style: normal;
 }
 .game-card .result.result-action {
   background: transparent !important;
@@ -1224,6 +1245,21 @@ h2 {
   width: min(900px, 92vw);
   text-align: center;
 }
+.game-context {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  margin-top: 24px;
+}
+.game-period {
+  width: fit-content;
+  margin: 0;
+  color: #9890a6;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
 .game-card .eyebrow {
   color: #978fac;
 }
@@ -1317,9 +1353,6 @@ h2 {
   color: #716a7d;
   font-size: 9px;
 }
-.game-top span {
-  margin: 0 7px;
-}
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 74px 1fr;
@@ -1391,6 +1424,32 @@ h2 {
   }
   .game-shell {
     padding: 20px;
+  }
+  .game-channel {
+    gap: 9px;
+  }
+  .game-channel > img {
+    width: 42px !important;
+    height: 42px !important;
+  }
+  .game-channel strong {
+    font-size: 16px;
+  }
+  .game-stats {
+    gap: 8px;
+  }
+  .game-stats span {
+    font-size: 9px;
+  }
+  .game-stats b {
+    font-size: 14px;
+  }
+  .game-period {
+    font-size: 10px;
+  }
+  .game-context {
+    gap: 8px;
+    margin-top: 18px;
   }
   .game-card blockquote {
     font-size: 28px;

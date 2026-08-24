@@ -10,8 +10,10 @@ from domain.models import ArchiveDate, Message
 from domain.parsing import parse_historical_message
 from domain.sampling import date_key, sample_dates, sample_even_dates
 from providers.protocols import (
+    ArchiveProviderUnavailableError,
     ArchiveTooLargeError,
     ArchiveYearUnavailableError,
+    HistoricalArchiveNotFoundError,
     HttpResponseTooLargeError,
     JsonHttpClient,
 )
@@ -102,6 +104,8 @@ class ZonianHistoricalProvider:
                 if origin not in date_origins:
                     date_origins.append(origin)
 
+        if not successful_lists:
+            raise ArchiveProviderUnavailableError
         if archive_year is not None and successful_lists and not locations:
             raise ArchiveYearUnavailableError(archive_year)
         if not locations:
@@ -147,7 +151,10 @@ class ZonianHistoricalProvider:
             max_bytes=ARCHIVE_DISCOVERY_MAX_BYTES,
             user_agent="KnowTheChat/1.0",
             cache_ttl=ARCHIVE_LIST_CACHE_TTL,
+            accepted_statuses=(404,),
         )
+        if payload is None:
+            raise ArchiveProviderUnavailableError
         channel_logs = payload.get("channelLogs") if isinstance(payload, dict) else None
         raw_origins = channel_logs.get("instances") if isinstance(channel_logs, dict) else None
         origins: list[str] = []
@@ -158,7 +165,15 @@ class ZonianHistoricalProvider:
                     origins.append(origin)
                 if len(origins) >= MAX_ARCHIVE_INSTANCES:
                     break
-        return tuple(origins) if origins else (HISTORY_ORIGIN,)
+        if origins:
+            return tuple(origins)
+        available = payload.get("available") if isinstance(payload, dict) else None
+        channel_available = available.get("channel") if isinstance(available, dict) else None
+        if channel_available is False or (
+            isinstance(payload, dict) and payload.get("status") == 404
+        ):
+            raise HistoricalArchiveNotFoundError
+        return (HISTORY_ORIGIN,)
 
     async def _fetch_available_dates(self, origin: str, channel: str) -> object:
         return await self._client.get_json(

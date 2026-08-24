@@ -18,9 +18,11 @@ describe("Who Said It frontend", () => {
     ).toBe(`year:${currentYear}`);
     expect(screen.getByRole("button", { name: /open the case/i })).toBeTruthy();
     const logo = screen.getByRole("img", { name: "Who Said It?" });
-    expect(logo.classList.contains("is-loaded")).toBe(false);
-    fireEvent.load(logo);
-    expect(logo.classList.contains("is-loaded")).toBe(true);
+    expect(logo.getAttribute("src")).toBe("/logo.png");
+    expect(screen.getByRole("main").getAttribute("translate")).toBe("no");
+    expect(
+      screen.getByRole("link", { name: "Haruzzz on Twitch" }),
+    ).toBeTruthy();
   });
 
   it("issues the same-origin public archive request", async () => {
@@ -131,7 +133,11 @@ describe("Who Said It frontend", () => {
               total: quotes.length,
               chatters,
               quotes,
-              range: null,
+              range: {
+                oldest: Date.UTC(2026, 0, 25),
+                newest: Date.UTC(2026, 7, 24),
+              },
+              source: "recent",
             }),
             { status: 200, headers: { "Content-Type": "application/json" } },
           ),
@@ -145,7 +151,26 @@ describe("Who Said It frontend", () => {
     fireEvent.click(screen.getByRole("button", { name: /open the case/i }));
 
     expect(
-      await screen.findByText(/ROUND 1\/3/i, undefined, { timeout: 2_000 }),
+      await screen.findByLabelText("Question 1 of 3, score 0 of 0", undefined, {
+        timeout: 2_000,
+      }),
     ).toBeTruthy();
+    expect(
+      screen.getByLabelText("Available chat period: Jan 25 – Aug 24, 2026"),
+    ).toBeTruthy();
+
+    const firstQuote = screen.getByText(/Distinctive message number/i);
+    const firstMessage = firstQuote.textContent;
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /Alice|Bob|Carol/i })[0],
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: /next message/i }),
+    );
+
+    const nextQuote = screen.getByText(/Distinctive message number/i);
+    expect(nextQuote).not.toBe(firstQuote);
+    expect(nextQuote.textContent).not.toBe(firstMessage);
+    expect(screen.getByRole("main").getAttribute("translate")).toBe("no");
   });
 });

@@ -10,7 +10,7 @@ Browser
   └─ POST /api/public-archive → Python Worker
                                   ├─ Zonian archive-instance discovery
                                   ├─ trusted public log instances
-                                  ├─ recent-messages fallbacks
+                                  ├─ archive-first recent-message fallback
                                   └─ 7TV / BetterTTV / FrankerFaceZ
 ```
 

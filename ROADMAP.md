@@ -36,24 +36,13 @@ These streamers have played Know The Chat on Twitch. The links below point to
 their channels, clips, or VOD moments where available. Inclusion does not imply
 an official partnership or endorsement.
 
-### Streamers
+### Clips and VOD moments from known streamers
 
-- [norbandit97 — videos](https://www.twitch.tv/norbandit97/videos)
-- [mat_ — videos](https://www.twitch.tv/mat_/videos)
-- [aggo](https://www.twitch.tv/aggo)
-- [marcelo — videos](https://www.twitch.tv/marcelo/videos)
-- [baitrorange](https://www.twitch.tv/baitrorange)
-- [amoghiehoagie](https://www.twitch.tv/amoghiehoagie)
-- [savannahsophiasonne](https://www.twitch.tv/savannahsophiasonne)
-- [bendsen](https://www.twitch.tv/bendsen)
-
-### Clips and VOD moments
-
-- [sondergaardlol clip](https://www.twitch.tv/sondergaardlol/clip/FlaccidBenevolentAubergineFrankerZ-a-W5-FERVNmIacY0?range=7d)
-- [VOD 2854155013](https://www.twitch.tv/videos/2854155013)
-- [VOD 2854152776](https://www.twitch.tv/videos/2854152776)
-- [VOD 2854321783 at 01:45:34](https://www.twitch.tv/videos/2854321783?t=01h45m34s)
-- [VOD 2854214467 at 00:38:06](https://www.twitch.tv/videos/2854214467?t=00h38m06s)
+- [Sondergaardlol](https://www.twitch.tv/sondergaardlol/clip/FlaccidBenevolentAubergineFrankerZ-a-W5-FERVNmIacY0?range=7d)
+- [NadjaPedersen](https://www.twitch.tv/videos/2854152776?t=01h41m04s)
+- [Jaxstyle](https://www.twitch.tv/videos/2854155013?t=01h52m02s)
+- [Mat_](https://www.twitch.tv/videos/2853522955?t=02h59m06s)
+- [norbandit97 — videos](https://www.twitch.tv/videos/2853552090?t=02h28m02s)
 
 ## Contributing ideas
 

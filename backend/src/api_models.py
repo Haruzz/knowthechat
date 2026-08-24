@@ -116,6 +116,7 @@ class PublicArchiveResponse(BaseModel):
     quotes: list[QuoteResponse]
     total: int
     range: ArchiveRangeResponse | None
+    source: Literal["historical", "recent"]
 
 
 class ErrorResponse(BaseModel):

@@ -20,6 +20,15 @@ class ArchiveTooLargeError(Exception):
         )
 
 
+class HistoricalArchiveNotFoundError(Exception):
+    """The channel has no discoverable long-term public archive."""
+
+
+class ArchiveProviderUnavailableError(Exception):
+    def __init__(self) -> None:
+        super().__init__("The public archive service is temporarily unavailable. Try again.")
+
+
 class HttpResponseTooLargeError(Exception):
     """An upstream body exceeded the caller's explicit byte limit."""
 
@@ -37,6 +46,7 @@ class JsonHttpClient(Protocol):
         max_bytes: int,
         user_agent: str,
         cache_ttl: int | None = None,
+        accepted_statuses: tuple[int, ...] = (),
     ) -> Any | None: ...
 
 

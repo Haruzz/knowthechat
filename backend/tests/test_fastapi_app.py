@@ -8,6 +8,7 @@ from httpx import ASGITransport, AsyncClient
 
 from api_models import PublicArchiveRequest, PublicArchiveResponse
 from fastapi_app import MAX_REQUEST_BYTES, BoundedRequestBodyMiddleware, create_app
+from providers.protocols import ArchiveProviderUnavailableError
 from services.public_archive import NoPublicArchiveError
 
 
@@ -27,6 +28,7 @@ class CapturingService:
             quotes=[],
             total=0,
             range=None,
+            source="historical",
         )
 
 
@@ -52,6 +54,7 @@ async def test_valid_request_preserves_response_contract() -> None:
         "quotes": [],
         "total": 0,
         "range": None,
+        "source": "historical",
     }
     assert service.request is not None
     assert service.request.range_days == 30
@@ -116,6 +119,17 @@ async def test_no_archive_error_is_404() -> None:
     assert response.status_code == 404
     assert response.headers["cache-control"] == "no-store"
     assert response.json() == {"error": "No public archive was found for that channel."}
+
+
+@pytest.mark.asyncio
+async def test_archive_provider_failure_is_503() -> None:
+    async with client_for(CapturingService(ArchiveProviderUnavailableError())) as client:
+        response = await client.post("/api/public-archive", json={"channel": "haruzz"})
+    assert response.status_code == 503
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json() == {
+        "error": "The public archive service is temporarily unavailable. Try again."
+    }
 
 
 @pytest.mark.asyncio

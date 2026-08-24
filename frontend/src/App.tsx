@@ -149,6 +149,39 @@ function renderQuote(quote: Quote) {
   return parts;
 }
 
+function formatArchiveRange(range: { oldest: number; newest: number } | null) {
+  if (!range) return "Latest available chat";
+  const oldest = new Date(range.oldest);
+  const newest = new Date(range.newest);
+  const shortDate = new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+  if (oldest.getFullYear() === newest.getFullYear())
+    return `${shortDate.format(oldest)} – ${shortDate.format(newest)}, ${newest.getFullYear()}`;
+  const fullDate = new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+  return `${fullDate.format(oldest)} – ${fullDate.format(newest)}`;
+}
+
+function CreatorCredit() {
+  return (
+    <a
+      className="creator-credit"
+      href="https://www.twitch.tv/haruzzz"
+      target="_blank"
+      rel="noreferrer"
+      aria-label="Haruzzz on Twitch"
+    >
+      <span aria-hidden="true">T</span>
+      Made by <strong>Haruzzz</strong>
+    </a>
+  );
+}
+
 function makeRounds(quotes: Quote[], chatters: Chatter[]) {
   const scores = new Map(chatters.map((c) => [c.name, c.score]));
   const chatterMap = new Map(chatters.map((c) => [c.name, c]));
@@ -228,19 +261,6 @@ export default function WhoSaidIt() {
     () => new Map(chatters.map((c) => [c.name, c.avatar])),
     [chatters],
   );
-
-  useEffect(() => {
-    const credit = document.createElement("a");
-    credit.className = "creator-credit";
-    credit.href = "https://www.twitch.tv/haruzzz";
-    credit.target = "_blank";
-    credit.rel = "noreferrer";
-    credit.setAttribute("aria-label", "Haruzzz on Twitch");
-    credit.innerHTML =
-      '<span aria-hidden="true">T</span>Made by <strong>Haruzzz</strong>';
-    document.body.appendChild(credit);
-    return () => credit.remove();
-  }, []);
 
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
@@ -418,7 +438,7 @@ export default function WhoSaidIt() {
     )[chatterPool] ?? "Balanced · top 50";
   if (loading)
     return (
-      <main className="simple-shell">
+      <main className="simple-shell" translate="no">
         <section className="case-builder">
           <div className="case-portrait">
             {streamer ? (
@@ -460,12 +480,13 @@ export default function WhoSaidIt() {
             <span>Messages → chatters → clues → emotes</span>
           </div>
         </section>
+        <CreatorCredit />
       </main>
     );
 
   if (rounds.length > 0 && index >= rounds.length)
     return (
-      <main className="simple-shell">
+      <main className="simple-shell" translate="no">
         <section className="simple-card end-card">
           <p className="eyebrow">CASE CLOSED</p>
           <h1>
@@ -476,20 +497,16 @@ export default function WhoSaidIt() {
             Try another channel
           </button>
         </section>
+        <CreatorCredit />
       </main>
     );
 
   if (!current)
     return (
-      <main className="simple-shell">
+      <main className="simple-shell" translate="no">
         <section className="simple-card">
           <div className="brand-lockup logo-only">
-            <img
-              className="brand-logo"
-              src="/logo.png"
-              alt="Who Said It?"
-              onLoad={(event) => event.currentTarget.classList.add("is-loaded")}
-            />
+            <img className="brand-logo" src="/logo.png" alt="Who Said It?" />
           </div>
           <h1>
             How well do you know
@@ -562,14 +579,14 @@ export default function WhoSaidIt() {
             archive · no Twitch connection
           </p>
         </section>
+        <CreatorCredit />
       </main>
     );
 
-  const rangeText = range
-    ? `${new Date(range.oldest).toLocaleDateString()} – ${new Date(range.newest).toLocaleDateString()}`
-    : "latest available archive";
+  const rangeText = formatArchiveRange(range);
+  const completedQuestions = index + (answered ? 1 : 0);
   return (
-    <main className="game-shell">
+    <main className="game-shell" translate="no">
       <div className="game-top">
         <button
           className="brand mini"
@@ -580,26 +597,42 @@ export default function WhoSaidIt() {
             className="brand-logo mini-logo"
             src="/logo.png"
             alt="Who Said It?"
-            onLoad={(event) => event.currentTarget.classList.add("is-loaded")}
           />
         </button>
         <div className="game-channel">
           {streamer && <img src={streamer.logo} alt="" />}
           <div>
             <strong>#{streamer?.name ?? channel}</strong>
-            <small>
-              {rangeText} · ROUND {index + 1}/{rounds.length} <span>•</span>{" "}
-              {correct} CORRECT
-            </small>
           </div>
         </div>
       </div>
+      <div className="game-context">
+        <p
+          className="game-period"
+          aria-label={`Available chat period: ${rangeText}`}
+        >
+          {rangeText}
+        </p>
+        <div
+          className="game-stats"
+          aria-label={`Question ${index + 1} of ${rounds.length}, score ${correct} of ${completedQuestions}`}
+          aria-live="polite"
+        >
+          <span>
+            QUESTION <b>{index + 1}</b> OF {rounds.length}
+          </span>
+          <i aria-hidden="true">•</i>
+          <span>
+            SCORE <b>{correct}</b> / {completedQuestions}
+          </span>
+        </div>
+      </div>
       <section
+        key={current.id}
         className={`game-card ${answered ? (answered === current.author ? "answer-correct" : "answer-wrong") : ""}`}
       >
         <p className="eyebrow">
-          PUBLIC CHAT ·{" "}
-          {new Date(current.sentAt).toLocaleDateString(undefined, {
+          {new Date(current.sentAt).toLocaleDateString("en-US", {
             year: "numeric",
             month: "short",
             day: "numeric",
@@ -652,6 +685,7 @@ export default function WhoSaidIt() {
         Multi-date chatters · balanced authors · recognizable messages · no
         repeats
       </p>
+      <CreatorCredit />
     </main>
   );
 }

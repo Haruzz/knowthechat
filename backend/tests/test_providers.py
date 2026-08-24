@@ -11,6 +11,7 @@ from providers.archives import (
     ARCHIVE_RESPONSE_MAX_BYTES,
     ARCHIVE_STATS_MAX_BYTES,
     HISTORICAL_FETCH_CONCURRENCY,
+    HISTORY_ORIGIN,
     MAX_HISTORICAL_DATES,
     MAX_HISTORICAL_MESSAGES,
     MAX_OVERSIZED_ARCHIVE_DATES,
@@ -21,8 +22,10 @@ from providers.archives import (
 )
 from providers.emotes import BetterTtvProvider, FrankerFaceZProvider, SevenTvProvider
 from providers.protocols import (
+    ArchiveProviderUnavailableError,
     ArchiveTooLargeError,
     ArchiveYearUnavailableError,
+    HistoricalArchiveNotFoundError,
     HttpResponseTooLargeError,
 )
 
@@ -40,6 +43,7 @@ class FakeHttpClient:
         max_bytes: int,
         user_agent: str,
         cache_ttl: int | None = None,
+        accepted_statuses: tuple[int, ...] = (),
     ) -> Any | None:
         self.calls.append(
             {
@@ -48,6 +52,7 @@ class FakeHttpClient:
                 "max_bytes": max_bytes,
                 "user_agent": user_agent,
                 "cache_ttl": cache_ttl,
+                "accepted_statuses": accepted_statuses,
             }
         )
         return self.responses.get(url)
@@ -75,6 +80,7 @@ async def test_zonian_provider_samples_and_caches_completed_day() -> None:
     day_url = "https://logs.zonian.dev/channel/channel/2024/01/2?jsonBasic=1&limit=2000&offset=0"
     client = FakeHttpClient(
         {
+            f"{HISTORY_ORIGIN}/api/channel": {"channelLogs": {"instances": [HISTORY_ORIGIN]}},
             list_url: {"availableLogs": [{"year": "2024", "month": "01", "day": "2"}]},
             stats_url: {"messageCount": 2},
             day_url: {"messages": [historical_message(), {"malformed": True}]},
@@ -104,6 +110,7 @@ async def test_zonian_provider_samples_a_bounded_window_from_a_busy_day() -> Non
     )
     client = FakeHttpClient(
         {
+            f"{HISTORY_ORIGIN}/api/channel": {"channelLogs": {"instances": [HISTORY_ORIGIN]}},
             list_url: {"availableLogs": [{"year": "2025", "month": "01", "day": "27"}]},
             stats_url: {"messageCount": 10_000},
             day_url: {"messages": [historical_message("sample", "2025-01-27T12:00:00Z")]},
@@ -188,6 +195,7 @@ class TrackingHttpClient(FakeHttpClient):
         max_bytes: int,
         user_agent: str,
         cache_ttl: int | None = None,
+        accepted_statuses: tuple[int, ...] = (),
     ) -> Any | None:
         if "?jsonBasic=1" not in url:
             return await super().get_json(
@@ -196,6 +204,7 @@ class TrackingHttpClient(FakeHttpClient):
                 max_bytes=max_bytes,
                 user_agent=user_agent,
                 cache_ttl=cache_ttl,
+                accepted_statuses=accepted_statuses,
             )
         self.active_archive_requests += 1
         self.maximum_archive_requests = max(
@@ -209,6 +218,7 @@ class TrackingHttpClient(FakeHttpClient):
                 max_bytes=max_bytes,
                 user_agent=user_agent,
                 cache_ttl=cache_ttl,
+                accepted_statuses=accepted_statuses,
             )
         finally:
             self.active_archive_requests -= 1
@@ -223,6 +233,7 @@ class OversizedArchiveHttpClient(FakeHttpClient):
         max_bytes: int,
         user_agent: str,
         cache_ttl: int | None = None,
+        accepted_statuses: tuple[int, ...] = (),
     ) -> Any | None:
         if "?jsonBasic=1" in url:
             self.calls.append(
@@ -241,6 +252,7 @@ class OversizedArchiveHttpClient(FakeHttpClient):
             max_bytes=max_bytes,
             user_agent=user_agent,
             cache_ttl=cache_ttl,
+            accepted_statuses=accepted_statuses,
         )
 
 
@@ -252,7 +264,10 @@ async def test_long_range_spans_history_with_bounded_concurrency() -> None:
         for year in (2023, 2024)
         for month in range(1, 13)
     ]
-    responses: dict[str, Any] = {list_url: {"availableLogs": dates}}
+    responses: dict[str, Any] = {
+        f"{HISTORY_ORIGIN}/api/channel": {"channelLogs": {"instances": [HISTORY_ORIGIN]}},
+        list_url: {"availableLogs": dates},
+    }
     for date in dates:
         url = (
             f"https://logs.zonian.dev/channel/channel/{date['year']}/{date['month']}/1"
@@ -300,7 +315,10 @@ async def test_historical_messages_have_a_hard_global_budget() -> None:
         {"year": "2024", "month": f"{month:02d}", "day": "1"}
         for month in range(1, MAX_HISTORICAL_DATES + 1)
     ]
-    responses: dict[str, Any] = {list_url: {"availableLogs": dates}}
+    responses: dict[str, Any] = {
+        f"{HISTORY_ORIGIN}/api/channel": {"channelLogs": {"instances": [HISTORY_ORIGIN]}},
+        list_url: {"availableLogs": dates},
+    }
     messages_per_date = MAX_HISTORICAL_MESSAGES // MAX_HISTORICAL_DATES + 200
     for date in dates:
         url = (
@@ -320,6 +338,25 @@ async def test_historical_messages_have_a_hard_global_budget() -> None:
 
 def test_representative_sampling_uses_the_whole_sequence() -> None:
     assert _sample_evenly(list(range(100)), 4) == [12, 37, 62, 87]
+
+
+@pytest.mark.asyncio
+async def test_discovery_distinguishes_missing_archive_from_provider_failure() -> None:
+    missing = FakeHttpClient(
+        {
+            f"{HISTORY_ORIGIN}/api/channel": {
+                "status": 404,
+                "available": {"channel": False},
+                "channelLogs": {"instances": []},
+            }
+        }
+    )
+    with pytest.raises(HistoricalArchiveNotFoundError):
+        await ZonianHistoricalProvider(missing).fetch("channel", 0, 90)
+
+    failing = FakeHttpClient({})
+    with pytest.raises(ArchiveProviderUnavailableError):
+        await ZonianHistoricalProvider(failing).fetch("channel", 0, 90)
 
 
 @pytest.mark.asyncio

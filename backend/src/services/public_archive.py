@@ -5,6 +5,7 @@ import json
 import math
 import time
 from collections.abc import Callable, Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 from api_models import (
@@ -22,15 +23,16 @@ from domain.ranking import rank_chatters
 from domain.scoring import score_recognizability
 from domain.text import add_third_party_spans
 from providers.protocols import (
+    ArchiveProviderUnavailableError,
     ArchiveTooLargeError,
     ArchiveYearUnavailableError,
     EmoteProvider,
+    HistoricalArchiveNotFoundError,
     HistoricalArchiveProvider,
     RecentArchiveProvider,
 )
 
 MAX_MESSAGES = 1_000
-MIN_HISTORICAL_MESSAGES = 100
 
 
 class NoPublicArchiveError(Exception):
@@ -113,11 +115,16 @@ class PublicArchiveService:
             if request.range_days is not None
             else 0
         )
-        historical = await self._load_historical(request, cutoff, summary)
+        historical, historical_archive_missing = await self._load_historical(
+            request, cutoff, summary
+        )
         summary["historical_messages"] = len(historical)
+        summary["historical_archive_missing"] = historical_archive_missing
 
         raw_recent: list[str] = []
-        if request.archive_year is None and len(historical) < MIN_HISTORICAL_MESSAGES:
+        current_year = datetime.fromtimestamp(self._now_ms() / 1_000, UTC).year
+        recent_allowed = request.archive_year is None or request.archive_year == current_year
+        if historical_archive_missing and recent_allowed:
             batches = await asyncio.gather(
                 *(
                     provider.fetch(request.channel, MAX_MESSAGES)
@@ -129,16 +136,30 @@ class PublicArchiveService:
             summary["recent_provider_failures"] = sum(
                 isinstance(batch, BaseException) for batch in batches
             )
+            if batches and all(isinstance(batch, BaseException) for batch in batches):
+                raise ArchiveProviderUnavailableError
         summary["recent_raw_messages"] = len(raw_recent)
         if not raw_recent and not historical:
             raise NoPublicArchiveError("No public archive was found for that channel.")
 
+        selected_year_bounds = (
+            (
+                datetime(request.archive_year, 1, 1, tzinfo=UTC).timestamp() * 1_000,
+                datetime(request.archive_year + 1, 1, 1, tzinfo=UTC).timestamp() * 1_000,
+            )
+            if request.archive_year is not None
+            else None
+        )
         recent = [
             message
             for raw in raw_recent
             if len(raw) <= 2_000
             for message in [parse_irc_message(raw, now_ms=self._now_ms())]
             if message is not None
+            and (
+                selected_year_bounds is None
+                or selected_year_bounds[0] <= message.sent_at < selected_year_bounds[1]
+            )
         ]
         parsed = [*historical, *recent]
         summary["recent_messages"] = len(recent)
@@ -199,6 +220,7 @@ class PublicArchiveService:
             quotes=quotes,
             total=len(messages),
             range=ArchiveRangeResponse(oldest=min(dates), newest=max(dates)) if dates else None,
+            source="historical" if historical else "recent",
         )
         summary["response_messages"] = response.total
         summary["response_chatters"] = len(response.chatters)
@@ -207,11 +229,22 @@ class PublicArchiveService:
 
     async def _load_historical(
         self, request: PublicArchiveRequest, cutoff: float, summary: dict[str, Any]
-    ) -> list[Message]:
+    ) -> tuple[list[Message], bool]:
         try:
-            return await self._historical_provider.fetch(
-                request.channel, cutoff, request.range_days, request.archive_year
+            return (
+                await self._historical_provider.fetch(
+                    request.channel, cutoff, request.range_days, request.archive_year
+                ),
+                False,
             )
+        except HistoricalArchiveNotFoundError as error:
+            summary["historical_error_type"] = type(error).__name__
+            current_year = datetime.fromtimestamp(self._now_ms() / 1_000, UTC).year
+            if request.archive_year is not None and request.archive_year != current_year:
+                raise NoPublicArchiveError(
+                    f"No public archive is available for {request.archive_year}."
+                ) from error
+            return [], True
         except ArchiveYearUnavailableError as error:
             summary["historical_error_type"] = type(error).__name__
             raise NoPublicArchiveError(str(error)) from error
@@ -220,7 +253,9 @@ class PublicArchiveService:
             raise NoPublicArchiveError(str(error)) from error
         except Exception as error:
             summary["historical_error_type"] = type(error).__name__
-            return []
+            if isinstance(error, ArchiveProviderUnavailableError):
+                raise
+            raise ArchiveProviderUnavailableError from error
 
     async def _load_emotes(self, room_id: str) -> dict[str, str]:
         if not room_id.isascii() or not room_id.isdigit():

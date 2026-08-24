@@ -7,7 +7,12 @@ import pytest
 
 from api_models import PublicArchiveRequest
 from domain.models import Message
-from providers.protocols import ArchiveTooLargeError, ArchiveYearUnavailableError
+from providers.protocols import (
+    ArchiveProviderUnavailableError,
+    ArchiveTooLargeError,
+    ArchiveYearUnavailableError,
+    HistoricalArchiveNotFoundError,
+)
 from services.public_archive import NoPublicArchiveError, PublicArchiveService, StructuredLogger
 
 
@@ -28,6 +33,15 @@ def make_message(index: int, *, user_id: str = "u1", name: str = "Alice") -> Mes
         sub=False,
         vip=False,
         mod=False,
+    )
+
+
+def make_recent_message(index: int, *, sent_at: int = 1_700_000_000_000) -> str:
+    return (
+        f"@display-name=RecentUser;user-id=recent-user;room-id=99;id=recent-{index};"
+        f"tmi-sent-ts={sent_at + index * 1_000};badges=;emotes= "
+        f":recentuser!recentuser@recentuser.tmi.twitch.tv PRIVMSG #channel "
+        f":This recent message has alpha{index} beta{index} gamma{index} and useful details?"
     )
 
 
@@ -167,18 +181,67 @@ async def test_sufficient_historical_archive_skips_recent_fallback() -> None:
     )
     assert recent.calls == 0
     assert response.total > 0
+    assert response.source == "historical"
 
 
 @pytest.mark.asyncio
-async def test_sparse_historical_archive_uses_recent_fallback() -> None:
+async def test_sparse_historical_archive_does_not_use_recent_fallback() -> None:
     recent = FakeRecent([])
     response = await service(FakeHistorical([make_message(i) for i in range(3)]), [recent]).execute(
         PublicArchiveRequest.model_validate(
             {"channel": "channel", "rangeDays": 90, "chatterPool": 25}
         )
     )
+    assert recent.calls == 0
+    assert response.total == 3
+    assert response.source == "historical"
+
+
+@pytest.mark.asyncio
+async def test_missing_archive_uses_recent_fallback_for_rolling_period() -> None:
+    recent = FakeRecent([make_recent_message(index) for index in range(3)])
+    response = await service(
+        FakeHistorical(error=HistoricalArchiveNotFoundError()), [recent]
+    ).execute(
+        PublicArchiveRequest.model_validate(
+            {"channel": "channel", "rangeDays": 90, "chatterPool": 25}
+        )
+    )
     assert recent.calls == 1
     assert response.total == 3
+    assert response.source == "recent"
+
+
+@pytest.mark.asyncio
+async def test_missing_archive_uses_recent_fallback_for_current_year() -> None:
+    recent = FakeRecent(
+        [
+            *[make_recent_message(index) for index in range(3)],
+            make_recent_message(99, sent_at=1_660_000_000_000),
+        ]
+    )
+    response = await service(
+        FakeHistorical(error=HistoricalArchiveNotFoundError()), [recent]
+    ).execute(
+        PublicArchiveRequest.model_validate(
+            {"channel": "channel", "archiveYear": 2023, "chatterPool": 25}
+        )
+    )
+    assert recent.calls == 1
+    assert response.total == 3
+    assert response.source == "recent"
+
+
+@pytest.mark.asyncio
+async def test_missing_archive_does_not_use_recent_fallback_for_past_year() -> None:
+    recent = FakeRecent([make_recent_message(index) for index in range(3)])
+    with pytest.raises(NoPublicArchiveError, match="2022"):
+        await service(FakeHistorical(error=HistoricalArchiveNotFoundError()), [recent]).execute(
+            PublicArchiveRequest.model_validate(
+                {"channel": "channel", "archiveYear": 2022, "chatterPool": 25}
+            )
+        )
+    assert recent.calls == 0
 
 
 @pytest.mark.asyncio
@@ -191,6 +254,7 @@ async def test_calendar_year_never_mixes_in_recent_messages() -> None:
     )
     assert recent.calls == 0
     assert response.total == 3
+    assert response.source == "historical"
 
 
 @pytest.mark.asyncio
@@ -212,12 +276,24 @@ async def test_oversized_calendar_year_has_a_specific_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_all_archive_providers_failing_returns_no_archive() -> None:
-    worker = service(
-        FakeHistorical(error=RuntimeError("down")), [FakeRecent(error=RuntimeError("down"))]
-    )
-    with pytest.raises(NoPublicArchiveError):
+async def test_historical_provider_failure_does_not_silently_use_recent_messages() -> None:
+    recent = FakeRecent([make_recent_message(1)])
+    worker = service(FakeHistorical(error=RuntimeError("down")), [recent])
+    with pytest.raises(ArchiveProviderUnavailableError):
         await worker.execute(PublicArchiveRequest.model_validate({"channel": "channel"}))
+    assert recent.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_all_recent_providers_failing_reports_temporary_unavailability() -> None:
+    worker = service(
+        FakeHistorical(error=HistoricalArchiveNotFoundError()),
+        [FakeRecent(error=RuntimeError("down"))],
+    )
+    with pytest.raises(ArchiveProviderUnavailableError):
+        await worker.execute(
+            PublicArchiveRequest.model_validate({"channel": "channel", "rangeDays": 90})
+        )
 
 
 @pytest.mark.asyncio

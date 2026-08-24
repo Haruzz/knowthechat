@@ -11,6 +11,7 @@ from starlette.requests import Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from api_models import ErrorResponse, PublicArchiveRequest, PublicArchiveResponse
+from providers.protocols import ArchiveProviderUnavailableError
 from services.public_archive import NoPublicArchiveError
 
 MAX_REQUEST_BYTES = 16_384
@@ -99,6 +100,12 @@ def create_app(service: ArchiveService) -> FastAPI:
     async def no_archive(_request: Request, error: NoPublicArchiveError) -> JSONResponse:
         return _error_response(str(error), 404)
 
+    @app.exception_handler(ArchiveProviderUnavailableError)
+    async def archive_unavailable(
+        _request: Request, error: ArchiveProviderUnavailableError
+    ) -> JSONResponse:
+        return _error_response(str(error), 503)
+
     @app.exception_handler(StarletteHttpException)
     async def http_error(_request: Request, error: StarletteHttpException) -> JSONResponse:
         headers = dict(error.headers or {})
@@ -115,6 +122,7 @@ def create_app(service: ArchiveService) -> FastAPI:
             400: {"model": ErrorResponse},
             404: {"model": ErrorResponse},
             413: {"model": ErrorResponse},
+            503: {"model": ErrorResponse},
         },
     )
     async def public_archive(

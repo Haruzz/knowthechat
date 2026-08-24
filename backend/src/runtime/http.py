@@ -44,6 +44,7 @@ class CloudflareJsonHttpClient:
         max_bytes: int,
         user_agent: str,
         cache_ttl: int | None = None,
+        accepted_statuses: tuple[int, ...] = (),
     ) -> Any | None:
         options: dict[str, Any] = {
             "headers": {"Accept": "application/json", "User-Agent": user_agent},
@@ -55,7 +56,7 @@ class CloudflareJsonHttpClient:
             response = await fetch(url, **options)
         except Exception:
             return None
-        if not response.ok:
+        if not response.ok and response.status not in accepted_statuses:
             await cancel_body(response, "upstream response was not successful")
             return None
         raw_content_length = response.headers.get("content-length")
