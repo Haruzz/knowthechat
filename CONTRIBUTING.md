@@ -40,7 +40,7 @@ Local development uses only public upstream services.
 3. Preserve accessibility, keyboard interaction, response-size bounds, upstream
    timeouts, trusted-host checks, and the same-origin `/api/public-archive`
    contract.
-4. Run `npm run check` and `npm run format:check`.
+4. Run `npm run check`.
 5. Explain the user-visible change and the checks you ran in the pull request.
 
 ## Reporting security problems

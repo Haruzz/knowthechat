@@ -2,30 +2,9 @@
 
 Know The Chat is a Twitch chat guessing game. Its React single-page application asks a same-origin Cloudflare Python Worker for public archived messages, then builds the game entirely in the browser.
 
-This is an unofficial community project. It is not affiliated with or endorsed by Twitch, Amazon, any featured streamer, or the public archive and emote providers it uses. See the [privacy and public-data notice](PRIVACY.md) and [third-party notices](THIRD_PARTY_NOTICES.md).
+**Play at [knowthechat.com](https://knowthechat.com).**
 
-## Architecture
-
-```text
-Browser
-  ├─ GET /*                    → Workers Static Assets → React + Vite
-  └─ POST /api/public-archive → Python Worker
-                                  ├─ Zonian archive-instance discovery
-                                  ├─ trusted public log instances
-                                  ├─ archive-first recent-message fallback
-                                  └─ 7TV / BetterTTV / FrankerFaceZ
-```
-
-One Worker deployment owns `knowthechat.com` and `www.knowthechat.com`. Cloudflare serves the compiled frontend without invoking Python; `assets.run_worker_first: ["/api/*"]` sends API requests to Python first. The browser therefore keeps using `fetch("/api/public-archive")` with no CORS configuration.
-
-See [the architecture guide](docs/architecture.md) and [Cloudflare operations guide](docs/cloudflare.md).
-
-## Roadmap
-
-Know The Chat is under active development. The [public roadmap and research
-notes](ROADMAP.md) collect gameplay ideas, open product questions, and Twitch
-streamers who have played the game. The roadmap is a backlog, not a commitment
-to implement every item.
+This is an unofficial community project. It is not affiliated with or endorsed by Twitch, Amazon, any featured streamer, or the public archive and emote providers it uses. See the [privacy notice](PRIVACY.md) and [third-party notices](THIRD_PARTY_NOTICES.md).
 
 ## Prerequisites
 
@@ -40,21 +19,6 @@ npm install
 npm run setup:backend
 ```
 
-`npm install` also registers the repository's Husky hooks. Before each commit,
-lint-staged formats only the files included in that commit: Prettier handles
-frontend and configuration files, while Ruff formats and fixes Python files.
-Fixable changes are added back to the commit automatically; an unresolved lint
-error stops the commit.
-
-Useful formatting commands:
-
-```bash
-npm run precommit
-npm run format
-npm run format:check
-npm run prepare # Reinstall the Git hooks if needed
-```
-
 ## Local development
 
 Use two terminals:
@@ -67,9 +31,16 @@ npm run dev:backend
 npm run dev:frontend
 ```
 
-The backend listens on `127.0.0.1:8787`. Vite prints the frontend URL and proxies `/api/*` to that backend, so browser requests remain same-origin from the application's perspective. Set `KNOWTHECHAT_BACKEND_ORIGIN` before starting Vite only if the backend uses another origin.
+The backend listens on `127.0.0.1:8787`. Vite prints the frontend URL and proxies `/api/*` to the local Worker.
 
-`pywrangler dev` runs the Python Worker locally. After building the frontend with `npm run build`, it can also serve the complete application at `http://127.0.0.1:8787`.
+To serve a production frontend build through the local Worker:
+
+```bash
+npm run build
+npm run dev:backend
+```
+
+Then open `http://127.0.0.1:8787`.
 
 ## Validation
 
@@ -77,20 +48,19 @@ The backend listens on `127.0.0.1:8787`. Vite prints the frontend URL and proxie
 npm run check
 ```
 
-That command runs frontend lint, strict TypeScript checking, frontend tests and build; backend Ruff, Pyright and pytest; then a combined Cloudflare deployment dry run.
+This runs formatting, linting, type checks, tests, the frontend build, and a Cloudflare Worker dry run without deploying anything.
 
-Useful narrower commands:
+## Architecture
 
-```bash
-npm run lint
-npm run typecheck
-npm run test
-npm run build
-npm run check:backend
-npm run deploy:dry-run
+```text
+Browser
+  ├─ GET /*                    → Workers Static Assets → React + Vite
+  └─ POST /api/public-archive → Python Worker
+                                  ├─ public chat archives
+                                  └─ emote providers
 ```
 
-The deployment dry run validates the Worker bundle without deploying it. Unit tests do not need a running local Worker.
+The frontend and API share one Cloudflare Worker and one origin. See the [architecture guide](docs/architecture.md) and [Cloudflare operations guide](docs/cloudflare.md) for details.
 
 ## CI/CD
 
@@ -102,7 +72,11 @@ GitHub Actions validates pull requests and commits on `main`:
    - **Tests:** Vitest and pytest
 2. **Build:** creates the Vite production bundle and performs a complete Cloudflare deployment dry run
 
-Pull requests therefore have to pass both jobs before they are ready to merge. After a merge or direct push to `main`, Cloudflare Workers Builds builds and deploys the application.
+After a merge or direct push to `main`, Cloudflare Workers Builds builds and deploys the application.
+
+## Roadmap
+
+Know The Chat is under active development. The [roadmap](ROADMAP.md) collects gameplay ideas and open product questions.
 
 ## Contributing and security
 
