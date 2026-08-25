@@ -4,14 +4,42 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    open-pull-requests-limit: 5
     groups:
+      react:
+        patterns:
+          - react
+          - react-dom
+          - "@types/react"
+          - "@types/react-dom"
       npm-development:
         dependency-type: development
+        update-types:
+          - patch
+          - minor
+    ignore:
+      # Keep major toolchain changes manual until their plugins support them.
+      - dependency-name: eslint
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "@eslint/js"
+        update-types:
+          - version-update:semver-major
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
+      # The project intentionally targets Node.js 22.
+      - dependency-name: "@types/node"
+        update-types:
+          - version-update:semver-major
 
   - package-ecosystem: pip
     directory: /backend
     schedule:
       interval: weekly
+    ignore:
+      # Cloudflare's current Pyodide package index requires this exact pin.
+      - dependency-name: pydantic
 
   - package-ecosystem: github-actions
     directory: /
