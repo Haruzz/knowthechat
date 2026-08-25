@@ -18,17 +18,23 @@ root:
 
 ```bash
 npm install
-npm run setup:backend
+cd backend
+uv sync
 ```
 
-Run the backend and frontend in separate terminals:
+From the repository root, run the backend and frontend in separate terminals.
+
+Backend:
 
 ```bash
-npm run dev:backend
+cd backend
+uv run pywrangler dev
 ```
 
+Frontend:
+
 ```bash
-npm run dev:frontend
+npm run dev
 ```
 
 Local development uses only public upstream services.

@@ -43,20 +43,26 @@ Discovered archive origins are accepted only when they match the source-controll
 
 Wrangler enables Workers Logs at full head sampling and traces at 5%. The service emits structured JSON stage events with durations and counts, including request receipt, historical/recent fetches, parsing/filtering, emote loading, chatter ranking, quote selection, completion and failure. It does not log chat bodies, full archives, or secrets.
 
-Inspect local logs in the terminal running `npm run dev:backend`. After an authorized production deployment:
+Inspect local logs in the terminal running `uv run pywrangler dev`. After an authorized production deployment:
 
 ```bash
-uv run --directory backend pywrangler tail
+cd backend
+uv run pywrangler tail
 ```
 
 ## Local development
 
 ```bash
 npm install
-npm run setup:backend
-npm run dev:backend
-# second terminal
-npm run dev:frontend
+cd backend
+uv sync
+uv run pywrangler dev
+```
+
+In a second terminal at the repository root:
+
+```bash
+npm run dev
 ```
 
 Vite proxies `/api/*` to `http://127.0.0.1:8787`. No production binding or credential is needed because all application providers are public HTTP services.
@@ -68,7 +74,8 @@ To exercise the exact combined routing rather than the Vite proxy:
 
 ```bash
 npm run build
-npm run dev:backend
+cd backend
+uv run pywrangler dev
 ```
 
 Then open `http://127.0.0.1:8787`.
@@ -87,8 +94,8 @@ Deploy command: npm run deploy:worker
 
 Every merge or direct push to `main` therefore creates a Cloudflare build and, if
 the build succeeds, deploys the combined Worker. GitHub Actions runs formatting,
-linting, type checks, tests, and a deployment dry run on pull requests and `main`.
-It does not deploy the application.
+linting, type checks, tests, and a deployment dry run on pull requests. It does
+not deploy the application.
 
 Cloudflare's build image includes Python 3.13 but does not document `uv` as a
 preinstalled tool. Every repository command that needs `uv` therefore goes through

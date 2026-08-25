@@ -5,7 +5,7 @@
       "name": "Frontend: Vite",
       "type": "node-terminal",
       "request": "launch",
-      "command": "npm run dev:frontend",
+      "command": "npm run dev",
       "cwd": "${workspaceFolder}",
       "presentation": {
         "group": "know-the-chat",
@@ -16,8 +16,8 @@
       "name": "Backend: Python Worker",
       "type": "node-terminal",
       "request": "launch",
-      "command": "uv run --directory backend pywrangler dev",
-      "cwd": "${workspaceFolder}",
+      "command": "uv run pywrangler dev",
+      "cwd": "${workspaceFolder}/backend",
       "presentation": {
         "group": "know-the-chat",
         "order": 2

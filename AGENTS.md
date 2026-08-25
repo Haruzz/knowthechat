@@ -27,8 +27,12 @@
 Start local development in two terminals:
 
 ```bash
-npm run dev:backend
-npm run dev:frontend
+cd backend
+uv run pywrangler dev
+```
+
+```bash
+npm run dev
 ```
 
 Vite proxies `/api/*` to `http://127.0.0.1:8787`.
@@ -65,6 +69,5 @@ Vite proxies `/api/*` to `http://127.0.0.1:8787`.
 - Add or update focused tests whenever behavior changes.
 - Run the narrowest relevant checks while iterating.
 - Run `npm run check` before finishing any material change. It covers frontend lint, types, tests and build; backend Ruff, Pyright and pytest; and a Cloudflare deployment dry run.
-- Run `npm run format:check` when documentation, configuration or formatting changes.
 - Do not weaken lint, type or test configuration merely to make a check pass.
 - Never run `npm run deploy:worker` unless production deployment is explicitly authorized.
