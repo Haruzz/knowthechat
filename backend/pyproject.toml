@@ -7,7 +7,7 @@ dependencies = [
   "fastapi>=0.141.1",
   # 2.10.6 is the newest release with a pydantic-core wheel in the
   # Pyodide 0.28.3 index used by workers-py 1.16.7.
-  "pydantic==2.10.6",
+  "pydantic==2.13.4",
 ]
 
 [dependency-groups]
