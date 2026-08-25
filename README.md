@@ -16,19 +16,25 @@ Install everything from the repository root:
 
 ```bash
 npm install
-npm run setup:backend
+cd backend
+uv sync
 ```
 
 ## Local development
 
-Use two terminals:
+From the repository root, start the backend and frontend in separate terminals.
+
+Backend:
 
 ```bash
-npm run dev:backend
+cd backend
+uv run pywrangler dev
 ```
 
+Frontend:
+
 ```bash
-npm run dev:frontend
+npm run dev
 ```
 
 The backend listens on `127.0.0.1:8787`. Vite prints the frontend URL and proxies `/api/*` to the local Worker.
@@ -37,7 +43,8 @@ To serve a production frontend build through the local Worker:
 
 ```bash
 npm run build
-npm run dev:backend
+cd backend
+uv run pywrangler dev
 ```
 
 Then open `http://127.0.0.1:8787`.
@@ -64,15 +71,7 @@ The frontend and API share one Cloudflare Worker and one origin. See the [archit
 
 ## CI/CD
 
-GitHub Actions validates pull requests and commits on `main`:
-
-1. **Test**
-   - **Pre-commit:** Prettier formatting plus frontend ESLint and backend Ruff
-   - **Type checks:** strict TypeScript and Pyright
-   - **Tests:** Vitest and pytest
-2. **Build:** creates the Vite production bundle and performs a complete Cloudflare deployment dry run
-
-After a merge or direct push to `main`, Cloudflare Workers Builds builds and deploys the application.
+GitHub Actions runs `npm run check` on pull requests and commits to `main`. After a merge or direct push to `main`, Cloudflare Workers Builds builds and deploys the application.
 
 ## Roadmap
 

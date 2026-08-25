@@ -14,8 +14,8 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: Test
+  check:
+    name: Check
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -38,37 +38,5 @@ jobs:
         run: npm ci
       - name: Install locked Python dependencies
         run: uv sync --project backend --locked --dev
-      - name: Pre-commit
-        run: npm run precommit:check
-      - name: Type checks
-        run: npm run typecheck
-      - name: Tests
-        run: npm run test
-
-  build:
-    name: Build
-    needs: test
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Check out the pushed commit
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - name: Use Node.js 22
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: 22
-          cache: npm
-      - name: Install uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
-        with:
-          version: "0.12.5"
-          enable-cache: true
-          cache-dependency-glob: backend/uv.lock
-      - name: Install Python 3.13
-        run: uv python install 3.13
-      - name: Install locked dependencies
-        run: npm ci
-      - name: Install locked Python dependencies
-        run: uv sync --project backend --locked --dev
-      - name: Build application and validate Worker bundle
-        run: npm run deploy:dry-run
+      - name: Check repository
+        run: npm run check

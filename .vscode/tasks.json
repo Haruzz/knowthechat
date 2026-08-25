@@ -13,8 +13,8 @@
       "label": "uv: dev backend",
       "type": "shell",
       "command": "uv",
-      "args": ["run", "--directory", "backend", "pywrangler", "dev"],
-      "options": { "cwd": "${workspaceFolder}" },
+      "args": ["run", "pywrangler", "dev"],
+      "options": { "cwd": "${workspaceFolder}/backend" },
       "isBackground": true,
       "problemMatcher": []
     },
