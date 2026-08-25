@@ -10,8 +10,6 @@ documentation, accessibility improvements, and gameplay ideas are welcome.
   can be agreed first.
 - Do not include private Twitch data, credentials, access tokens, or chat logs
   that are not already intentionally public.
-- Keep production deployment and domain changes out of contributions unless a
-  maintainer explicitly requests them.
 
 ## Local development
 
@@ -33,8 +31,7 @@ uv run --directory backend pywrangler dev
 npm run dev:frontend
 ```
 
-Local development uses only public upstream services and does not require
-production credentials.
+Local development uses only public upstream services.
 
 ## Pull requests
 
@@ -45,9 +42,6 @@ production credentials.
    contract.
 4. Run `npm run check` and `npm run format:check`.
 5. Explain the user-visible change and the checks you ran in the pull request.
-
-Pull requests run untrusted code in a read-only GitHub Actions workflow. They do
-not receive production credentials and cannot deploy the application.
 
 ## Reporting security problems
 

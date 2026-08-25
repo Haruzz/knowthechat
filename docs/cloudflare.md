@@ -61,6 +61,9 @@ npm run dev:frontend
 
 Vite proxies `/api/*` to `http://127.0.0.1:8787`. No production binding or credential is needed because all application providers are public HTTP services.
 
+`pywrangler dev` runs the Worker in Cloudflare's local development runtime. The
+frontend and backend unit tests run without starting either development server.
+
 To exercise the exact combined routing rather than the Vite proxy:
 
 ```bash
@@ -84,8 +87,8 @@ Deploy command: npm run deploy:worker
 
 Every merge or direct push to `main` therefore creates a Cloudflare build and, if
 the build succeeds, deploys the combined Worker. GitHub Actions runs formatting,
-linting, type checks, tests, and a deployment dry run on pull requests only. It has
-no production deployment job and requires no Cloudflare account ID or API token.
+linting, type checks, tests, and a deployment dry run on pull requests and `main`.
+It does not deploy the application.
 
 Cloudflare's build image includes Python 3.13 but does not document `uv` as a
 preinstalled tool. Every repository command that needs `uv` therefore goes through
@@ -94,9 +97,8 @@ only on a Linux build machine where `uv` is missing, installs pinned `uv` 0.12.5
 into `$HOME/.local/bin` using Astral's official versioned installer. GitHub Actions
 installs the same pinned version through `astral-sh/setup-uv` before running checks.
 
-This keeps the deploy commands reproducible in the repository and preserves normal
-local execution through Git Bash. A missing Windows installation produces a clear
-error instead of silently installing software on the developer machine.
+This preserves normal local execution through Git Bash. A missing Windows
+installation produces a clear error instead of silently installing software.
 
 Preflight without changing Cloudflare:
 
@@ -104,18 +106,8 @@ Preflight without changing Cloudflare:
 npm run check
 ```
 
-Authorized maintainer production cutover:
-
-```bash
-KNOWTHECHAT_PRODUCTION_DEPLOY=1 npm run deploy:production
-```
-
-The explicit environment variable is a guard against casual local execution; it
-is not an authentication mechanism. Wrangler still requires a Cloudflare login or
-API token with access to the production account. This manual fallback rebuilds the
-frontend before `pywrangler deploy`. Normal production deployments are performed
-by Workers Builds. The only required binding is the automatically provisioned
-`ASSETS` binding; no secrets, KV, D1, R2, Images, or service bindings are required.
+Production deployments are performed by Workers Builds after a push to `main`.
+The only required binding is the automatically provisioned `ASSETS` binding.
 
 Rollback immediately if health checks fail:
 

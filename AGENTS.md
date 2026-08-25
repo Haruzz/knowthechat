@@ -68,4 +68,4 @@ Vite proxies `/api/*` to `http://127.0.0.1:8787`.
 - Run `npm run check` before finishing any material change. It covers frontend lint, types, tests and build; backend Ruff, Pyright and pytest; and a Cloudflare deployment dry run.
 - Run `npm run format:check` when documentation, configuration or formatting changes.
 - Do not weaken lint, type or test configuration merely to make a check pass.
-- Never run `npm run deploy:production` unless production deployment is explicitly authorized.
+- Never run `npm run deploy:worker` unless production deployment is explicitly authorized.

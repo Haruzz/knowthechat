@@ -26,8 +26,7 @@
     "check:backend": "npm run lint:backend && npm run typecheck:backend && npm run test:backend",
     "check": "npm run precommit:check && npm run typecheck && npm run test && npm run deploy:dry-run",
     "deploy:dry-run": "npm run build -w frontend && sh scripts/with-uv.sh run --locked --directory backend pywrangler deploy --dry-run",
-    "deploy:worker": "sh scripts/with-uv.sh run --locked --directory backend pywrangler deploy",
-    "deploy:production": "bash scripts/deploy-production.sh"
+    "deploy:worker": "sh scripts/with-uv.sh run --locked --directory backend pywrangler deploy"
   },
   "lint-staged": {
     "*.{css,html,js,json,jsonc,jsx,md,mjs,ts,tsx,yaml,yml}": "prettier --write",

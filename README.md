@@ -32,7 +32,6 @@ to implement every item.
 - Node.js 22.13 or newer
 - Python 3.13
 - [uv](https://docs.astral.sh/uv/)
-- A Cloudflare login only for deployment; local development needs no production credentials
 
 Install everything from the repository root:
 
@@ -70,6 +69,8 @@ npm run dev:frontend
 
 The backend listens on `127.0.0.1:8787`. Vite prints the frontend URL and proxies `/api/*` to that backend, so browser requests remain same-origin from the application's perspective. Set `KNOWTHECHAT_BACKEND_ORIGIN` before starting Vite only if the backend uses another origin.
 
+`pywrangler dev` runs the Python Worker locally. After building the frontend with `npm run build`, it can also serve the complete application at `http://127.0.0.1:8787`.
+
 ## Validation
 
 ```bash
@@ -89,11 +90,11 @@ npm run check:backend
 npm run deploy:dry-run
 ```
 
-The deployment dry run validates the Worker bundle without authenticating to or changing a Cloudflare account. Production deployment is maintainer-only and deliberately absent from the normal contributor workflow. To deploy a fork to your own Cloudflare account, follow [the self-hosting guide](docs/self-hosting.md).
+The deployment dry run validates the Worker bundle without deploying it. Unit tests do not need a running local Worker.
 
 ## CI/CD
 
-GitHub Actions validates pull requests:
+GitHub Actions validates pull requests and commits on `main`:
 
 1. **Test**
    - **Pre-commit:** Prettier formatting plus frontend ESLint and backend Ruff
@@ -101,9 +102,7 @@ GitHub Actions validates pull requests:
    - **Tests:** Vitest and pytest
 2. **Build:** creates the Vite production bundle and performs a complete Cloudflare deployment dry run
 
-Pull requests therefore have to pass both jobs before they are ready to merge. After a merge or direct push to `main`, Cloudflare Workers Builds checks out that commit, builds the frontend, and deploys the combined Worker. Production credentials stay inside Cloudflare; GitHub Actions does not deploy and does not require Cloudflare secrets.
-
-Pull requests from forks run with read-only repository permissions and receive no production credentials. Only maintainers can merge to the protected `main` branch, which is the production deployment boundary.
+Pull requests therefore have to pass both jobs before they are ready to merge. After a merge or direct push to `main`, Cloudflare Workers Builds builds and deploys the application.
 
 ## Contributing and security
 
