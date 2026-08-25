@@ -19,16 +19,15 @@
 
 ## Development environment
 
-- Use Git Bash for repository commands on Windows.
 - Use Node.js 22.13 or newer, Python 3.13, npm and uv.
 - Run commands from the repository root unless documentation says otherwise.
-- Repository commands invoke `scripts/with-uv.sh`; it uses the developer's installed uv and bootstraps pinned uv only on Linux CI/build machines.
+- Repository commands invoke `scripts/with-uv.mjs`; it uses the developer's installed uv and bootstraps pinned uv only on Linux CI/build machines.
 - Do not edit generated `frontend/dist`, Python virtual environments, `python_modules`, caches or Wrangler output.
 
 Start local development in two terminals:
 
 ```bash
-uv run --directory backend pywrangler dev
+npm run dev:backend
 npm run dev:frontend
 ```
 

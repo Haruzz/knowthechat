@@ -37,7 +37,7 @@ Install everything from the repository root:
 
 ```bash
 npm install
-uv sync --directory backend
+npm run setup:backend
 ```
 
 `npm install` also registers the repository's Husky hooks. Before each commit,
@@ -60,7 +60,7 @@ npm run prepare # Reinstall the Git hooks if needed
 Use two terminals:
 
 ```bash
-uv run --directory backend pywrangler dev
+npm run dev:backend
 ```
 
 ```bash

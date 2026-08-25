@@ -18,13 +18,13 @@ root:
 
 ```bash
 npm install
-uv sync --directory backend
+npm run setup:backend
 ```
 
-Run the backend and frontend in separate Git Bash terminals:
+Run the backend and frontend in separate terminals:
 
 ```bash
-uv run --directory backend pywrangler dev
+npm run dev:backend
 ```
 
 ```bash

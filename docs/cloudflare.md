@@ -43,7 +43,7 @@ Discovered archive origins are accepted only when they match the source-controll
 
 Wrangler enables Workers Logs at full head sampling and traces at 5%. The service emits structured JSON stage events with durations and counts, including request receipt, historical/recent fetches, parsing/filtering, emote loading, chatter ranking, quote selection, completion and failure. It does not log chat bodies, full archives, or secrets.
 
-Inspect local logs in the terminal running `uv run --directory backend pywrangler dev`. After an authorized production deployment:
+Inspect local logs in the terminal running `npm run dev:backend`. After an authorized production deployment:
 
 ```bash
 uv run --directory backend pywrangler tail
@@ -53,8 +53,8 @@ uv run --directory backend pywrangler tail
 
 ```bash
 npm install
-uv sync --directory backend
-uv run --directory backend pywrangler dev
+npm run setup:backend
+npm run dev:backend
 # second terminal
 npm run dev:frontend
 ```
@@ -68,7 +68,7 @@ To exercise the exact combined routing rather than the Vite proxy:
 
 ```bash
 npm run build
-uv run --directory backend pywrangler dev
+npm run dev:backend
 ```
 
 Then open `http://127.0.0.1:8787`.
@@ -92,13 +92,13 @@ It does not deploy the application.
 
 Cloudflare's build image includes Python 3.13 but does not document `uv` as a
 preinstalled tool. Every repository command that needs `uv` therefore goes through
-`scripts/with-uv.sh`. It uses an existing local installation when available and,
+`scripts/with-uv.mjs`. It uses an existing local installation when available and,
 only on a Linux build machine where `uv` is missing, installs pinned `uv` 0.12.5
 into `$HOME/.local/bin` using Astral's official versioned installer. GitHub Actions
 installs the same pinned version through `astral-sh/setup-uv` before running checks.
 
-This preserves normal local execution through Git Bash. A missing Windows
-installation produces a clear error instead of silently installing software.
+This preserves normal local execution. A missing local installation produces a
+clear error instead of silently installing software.
 
 Preflight without changing Cloudflare:
 
