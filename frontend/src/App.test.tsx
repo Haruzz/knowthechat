@@ -23,6 +23,12 @@ describe("Who Said It frontend", () => {
     expect(
       screen.getByRole("link", { name: "Haruzzz on Twitch" }),
     ).toBeTruthy();
+    const repositoryLink = screen.getByRole("link", {
+      name: "Know The Chat source code on GitHub",
+    });
+    expect(repositoryLink.getAttribute("href")).toBe(
+      "https://github.com/Haruzz/knowthechat",
+    );
   });
 
   it("issues the same-origin public archive request", async () => {
