@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import random
 from datetime import UTC, datetime
 
 from domain.duplicates import NearDuplicateIndex
@@ -8,7 +7,7 @@ from domain.filtering import is_known_bot, is_low_quality, is_twitch_event_notic
 from domain.models import ArchiveDate, Message
 from domain.parsing import parse_historical_message, parse_irc_message, unescape_irc_tag
 from domain.ranking import rank_chatters
-from domain.sampling import sample_dates, sample_even_dates
+from domain.sampling import sample_even_dates
 from domain.scoring import DAY_MS, difficulty_for_age, score_recognizability
 from domain.text import (
     add_third_party_spans,
@@ -166,13 +165,7 @@ def test_near_duplicate_index_sequence() -> None:
 
 def test_date_sampling_is_deterministic_and_keeps_newest() -> None:
     days = [ArchiveDate("2024", "01", str(day)) for day in range(1, 21)]
-    selected = sample_even_dates(days, 4, random.Random(7))
-    assert len(selected) == 4
-    assert selected[-1] == days[-1]
-    months = [ArchiveDate("2023", str(month), "15") for month in range(1, 13)]
-    selected_months = sample_dates(months, 6, random.Random(7))
-    assert len(selected_months) == 6
-    assert selected_months[-1] == months[-1]
+    assert sample_even_dates(days, 4) == [days[2], days[8], days[15], days[-1]]
 
 
 def test_chatter_ranking_matches_current_formula() -> None:

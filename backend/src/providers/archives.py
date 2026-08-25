@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import random
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from urllib.parse import quote
 
 from domain.models import ArchiveDate, Message
 from domain.parsing import parse_historical_message
-from domain.sampling import date_key, sample_dates, sample_even_dates
+from domain.sampling import date_key, sample_even_dates
 from providers.protocols import (
     ArchiveProviderUnavailableError,
     ArchiveTooLargeError,
@@ -29,8 +28,9 @@ MAX_ARCHIVE_INSTANCES = 6
 MAX_HISTORICAL_DATES = 12
 MAX_HISTORICAL_MESSAGES = 6_000
 MAX_HISTORICAL_MESSAGES_PER_DATE = 1_000
+HISTORICAL_WINDOWS_PER_DATE = 2
 MAX_OVERSIZED_ARCHIVE_DATES = 2
-PARSE_CANDIDATE_MULTIPLIER = 2
+PARSE_CANDIDATE_MULTIPLIER = 4
 TRUSTED_ARCHIVE_ORIGINS = frozenset(
     {
         "https://harambelogs.pl",
@@ -69,14 +69,8 @@ def _maximum_dates(range_days: float | None) -> int:
 
 
 class ZonianHistoricalProvider:
-    def __init__(
-        self,
-        client: JsonHttpClient,
-        *,
-        rng: random.Random | None = None,
-    ) -> None:
+    def __init__(self, client: JsonHttpClient) -> None:
         self._client = client
-        self._rng = rng
 
     async def fetch(
         self,
@@ -113,11 +107,7 @@ class ZonianHistoricalProvider:
 
         available = list(locations)
         maximum = _maximum_dates(range_days)
-        chosen = (
-            sample_even_dates(available, maximum, self._rng)
-            if range_days is not None and range_days <= 90
-            else sample_dates(available, maximum, self._rng)
-        )
+        chosen = sample_even_dates(available, maximum)
         per_date_limit = min(
             MAX_HISTORICAL_MESSAGES_PER_DATE,
             max(1, MAX_HISTORICAL_MESSAGES // len(chosen)),
@@ -217,38 +207,51 @@ class ZonianHistoricalProvider:
             message_count = await self._fetch_message_count(
                 origin, channel, date, cache_ttl=cache_ttl
             )
-            maximum_offset = max(0, message_count - candidate_limit)
-            source = self._rng or random
-            offset = source.randrange(maximum_offset + 1) if maximum_offset else 0
-            url = (
-                f"{origin}/channel/{quote(channel)}/{date.year}/{date.month}{suffix}"
-                f"?jsonBasic=1&limit={candidate_limit}&offset={offset}"
-            )
-            try:
-                payload = await self._client.get_json(
-                    url,
-                    timeout_ms=14_000,
-                    max_bytes=ARCHIVE_RESPONSE_MAX_BYTES,
-                    user_agent="KnowTheChat/1.0",
-                    cache_ttl=cache_ttl,
-                )
-            except HttpResponseTooLargeError:
-                # Mirrors hold equivalent daily archives. Retrying the same date
-                # elsewhere would download another oversized body with no benefit.
-                raise
-            raw_messages = payload.get("messages") if isinstance(payload, dict) else None
-            if not isinstance(raw_messages, list):
-                continue
-            candidates = _sample_evenly(raw_messages, candidate_limit)
             parsed: list[Message] = []
-            for value in candidates:
-                if not isinstance(value, dict):
+            window_count = (
+                1
+                if message_count <= candidate_limit
+                else min(HISTORICAL_WINDOWS_PER_DATE, message_limit)
+            )
+            for window_index in range(window_count):
+                window_quota = message_limit // window_count + int(
+                    window_index < message_limit % window_count
+                )
+                window_limit = window_quota * PARSE_CANDIDATE_MULTIPLIER
+                center = (2 * window_index + 1) * message_count // (2 * window_count)
+                offset = min(
+                    max(0, center - window_limit // 2),
+                    max(0, message_count - window_limit),
+                )
+                url = (
+                    f"{origin}/channel/{quote(channel)}/{date.year}/{date.month}{suffix}"
+                    f"?jsonBasic=1&limit={window_limit}&offset={offset}"
+                )
+                try:
+                    payload = await self._client.get_json(
+                        url,
+                        timeout_ms=14_000,
+                        max_bytes=ARCHIVE_RESPONSE_MAX_BYTES,
+                        user_agent="KnowTheChat/1.0",
+                        cache_ttl=cache_ttl,
+                    )
+                except HttpResponseTooLargeError:
+                    # Mirrors hold equivalent daily archives. Retrying the same date
+                    # elsewhere would download another oversized body with no benefit.
+                    raise
+                raw_messages = payload.get("messages") if isinstance(payload, dict) else None
+                if not isinstance(raw_messages, list):
                     continue
-                message = parse_historical_message(value)
-                if message is not None:
-                    parsed.append(message)
-                if len(parsed) >= message_limit:
-                    break
+                window_messages = 0
+                for value in _sample_evenly(raw_messages, window_limit):
+                    if not isinstance(value, dict):
+                        continue
+                    message = parse_historical_message(value)
+                    if message is not None:
+                        parsed.append(message)
+                        window_messages += 1
+                    if window_messages >= window_quota:
+                        break
             if parsed:
                 return parsed
         return []
