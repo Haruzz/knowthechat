@@ -1,5 +1,7 @@
 # Know The Chat
 
+![Know The Chat](docs/assets/repository-social-preview.png)
+
 Know The Chat is a Twitch chat guessing game. Its React single-page application asks a same-origin Cloudflare Python Worker for public archived messages, then builds the game entirely in the browser.
 
 **Play at [knowthechat.com](https://knowthechat.com).**
