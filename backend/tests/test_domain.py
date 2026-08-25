@@ -7,7 +7,7 @@ from domain.filtering import is_known_bot, is_low_quality, is_twitch_event_notic
 from domain.models import ArchiveDate, Message
 from domain.parsing import parse_historical_message, parse_irc_message, unescape_irc_tag
 from domain.ranking import rank_chatters
-from domain.sampling import sample_even_dates
+from domain.sampling import date_buckets, sample_even_dates
 from domain.scoring import DAY_MS, difficulty_for_age, score_recognizability
 from domain.text import (
     add_third_party_spans,
@@ -163,9 +163,10 @@ def test_near_duplicate_index_sequence() -> None:
     assert actual == [True, False, False, False, False]
 
 
-def test_date_sampling_is_deterministic_and_keeps_newest() -> None:
+def test_date_sampling_is_deterministic_and_chronologically_bucketed() -> None:
     days = [ArchiveDate("2024", "01", str(day)) for day in range(1, 21)]
-    assert sample_even_dates(days, 4) == [days[2], days[8], days[15], days[-1]]
+    assert date_buckets(days, 4) == [days[:5], days[5:10], days[10:15], days[15:]]
+    assert sample_even_dates(days, 4) == [days[2], days[7], days[12], days[17]]
 
 
 def test_chatter_ranking_matches_current_formula() -> None:

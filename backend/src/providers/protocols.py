@@ -57,6 +57,7 @@ class HistoricalArchiveProvider(Protocol):
         cutoff_ms: float,
         range_days: float | None,
         archive_year: int | None = None,
+        sampling_pass: int = 1,
     ) -> list[Message]: ...
 
 

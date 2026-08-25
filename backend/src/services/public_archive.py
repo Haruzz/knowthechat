@@ -33,6 +33,10 @@ from providers.protocols import (
 )
 
 MAX_MESSAGES = 1_000
+MAX_HISTORICAL_MESSAGES_ACROSS_PASSES = 12_000
+MAX_GAME_QUOTES = 500
+MAX_QUOTES_PER_CHATTER = 15
+MAX_RESPONSE_QUOTES_PER_CHATTER = 25
 
 
 class NoPublicArchiveError(Exception):
@@ -116,9 +120,9 @@ class PublicArchiveService:
             else 0
         )
         historical, historical_archive_missing = await self._load_historical(
-            request, cutoff, summary
+            request, cutoff, summary, sampling_pass=1
         )
-        summary["historical_messages"] = len(historical)
+        summary["initial_historical_messages"] = len(historical)
         summary["historical_archive_missing"] = historical_archive_missing
 
         raw_recent: list[str] = []
@@ -163,8 +167,26 @@ class PublicArchiveService:
         ]
         parsed = [*historical, *recent]
         summary["recent_messages"] = len(recent)
-        summary["parsed_messages"] = len(parsed)
         messages = self._deduplicate(parsed, cutoff)
+        initial_capacity = self._playable_quote_capacity(messages, request.chatter_pool)
+        target_capacity = min(MAX_GAME_QUOTES, request.chatter_pool * MAX_QUOTES_PER_CHATTER)
+        summary["initial_playable_quotes"] = initial_capacity
+        summary["target_playable_quotes"] = target_capacity
+        expanded = False
+        if historical and initial_capacity < target_capacity:
+            try:
+                extra, _ = await self._load_historical(request, cutoff, summary, sampling_pass=2)
+                if extra:
+                    historical = [*historical, *extra][:MAX_HISTORICAL_MESSAGES_ACROSS_PASSES]
+                    parsed = [*historical, *recent]
+                    messages = self._deduplicate(parsed, cutoff)
+                    expanded = True
+                summary["expanded_historical_messages"] = len(extra)
+            except (ArchiveProviderUnavailableError, NoPublicArchiveError) as error:
+                summary["expansion_error_type"] = type(error).__name__
+        summary["historical_messages"] = len(historical)
+        summary["expanded"] = expanded
+        summary["parsed_messages"] = len(parsed)
         summary["accepted_messages"] = len(messages)
         summary["rejected_messages"] = len(parsed) - len(messages)
 
@@ -173,6 +195,7 @@ class PublicArchiveService:
         summary["emote_catalog_entries"] = len(emotes)
         ranked, eligible = rank_chatters(messages, request.chatter_pool)
         summary["eligible_chatters"] = len(ranked)
+        summary["playable_quotes"] = self._playable_quote_capacity(messages, request.chatter_pool)
 
         chatters = [
             ChatterResponse(
@@ -192,12 +215,9 @@ class PublicArchiveService:
         ]
         quotes: list[QuoteResponse] = []
         reference_ms = self._now_ms()
-        for message in messages:
-            if message.user_id not in eligible:
-                continue
-            quality = score_recognizability(message.body)
-            if quality < 4:
-                continue
+        quote_messages = self._select_quote_messages(messages, eligible)
+        summary["retained_quote_candidates"] = len(quote_messages)
+        for message, quality in quote_messages:
             spans = add_third_party_spans(message.body, message.emotes, emotes)
             quotes.append(
                 QuoteResponse(
@@ -229,12 +249,21 @@ class PublicArchiveService:
         return response
 
     async def _load_historical(
-        self, request: PublicArchiveRequest, cutoff: float, summary: dict[str, Any]
+        self,
+        request: PublicArchiveRequest,
+        cutoff: float,
+        summary: dict[str, Any],
+        *,
+        sampling_pass: int,
     ) -> tuple[list[Message], bool]:
         try:
             return (
                 await self._historical_provider.fetch(
-                    request.channel, cutoff, request.range_days, request.archive_year
+                    request.channel,
+                    cutoff,
+                    request.range_days,
+                    request.archive_year,
+                    sampling_pass,
                 ),
                 False,
             )
@@ -292,3 +321,40 @@ class PublicArchiveService:
             near_duplicates.add(message.normalized)
             accepted.append(message)
         return sorted(accepted, key=lambda message: message.sent_at)
+
+    @staticmethod
+    def _playable_quote_capacity(messages: Sequence[Message], chatter_pool: int) -> int:
+        _, eligible = rank_chatters(messages, chatter_pool)
+        by_chatter: dict[str, int] = {}
+        for message in messages:
+            if message.user_id in eligible and score_recognizability(message.body) >= 4:
+                by_chatter[message.user_id] = min(
+                    MAX_QUOTES_PER_CHATTER, by_chatter.get(message.user_id, 0) + 1
+                )
+        return sum(by_chatter.values())
+
+    @staticmethod
+    def _select_quote_messages(
+        messages: Sequence[Message], eligible: set[str]
+    ) -> list[tuple[Message, int]]:
+        by_chatter: dict[str, list[tuple[Message, int]]] = {}
+        for message in messages:
+            if message.user_id not in eligible:
+                continue
+            quality = score_recognizability(message.body)
+            if quality >= 4:
+                by_chatter.setdefault(message.user_id, []).append((message, quality))
+
+        selected: list[tuple[Message, int]] = []
+        for candidates in by_chatter.values():
+            bucket_count = min(len(candidates), MAX_RESPONSE_QUOTES_PER_CHATTER)
+            for index in range(bucket_count):
+                bucket = candidates[
+                    index * len(candidates) // bucket_count : (index + 1)
+                    * len(candidates)
+                    // bucket_count
+                ]
+                selected.append(
+                    max(bucket, key=lambda candidate: (candidate[1], candidate[0].sent_at))
+                )
+        return sorted(selected, key=lambda candidate: candidate[0].sent_at)

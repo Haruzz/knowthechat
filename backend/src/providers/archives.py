@@ -7,7 +7,7 @@ from urllib.parse import quote
 
 from domain.models import ArchiveDate, Message
 from domain.parsing import parse_historical_message
-from domain.sampling import date_key, sample_even_dates
+from domain.sampling import date_buckets, date_key
 from providers.protocols import (
     ArchiveProviderUnavailableError,
     ArchiveTooLargeError,
@@ -23,14 +23,19 @@ ARCHIVE_DISCOVERY_MAX_BYTES = 2_000_000
 ARCHIVE_LIST_MAX_BYTES = 1_000_000
 ARCHIVE_STATS_MAX_BYTES = 100_000
 ARCHIVE_RESPONSE_MAX_BYTES = 10_000_000
-HISTORICAL_FETCH_CONCURRENCY = 2
+HISTORICAL_FETCH_CONCURRENCY = 1
+ARCHIVE_STATS_CONCURRENCY = 6
 MAX_ARCHIVE_INSTANCES = 6
 MAX_HISTORICAL_DATES = 12
+MAX_EXPANSION_DATES = 6
 MAX_HISTORICAL_MESSAGES = 6_000
 MAX_HISTORICAL_MESSAGES_PER_DATE = 1_000
-HISTORICAL_WINDOWS_PER_DATE = 2
+INITIAL_WINDOWS_PER_DATE = 2
+EXPANSION_WINDOWS_PER_DATE = 4
+ACTIVITY_CANDIDATES_PER_BUCKET = 3
 MAX_OVERSIZED_ARCHIVE_DATES = 2
-PARSE_CANDIDATE_MULTIPLIER = 4
+INITIAL_PARSE_CANDIDATE_MULTIPLIER = 4
+EXPANSION_PARSE_CANDIDATE_MULTIPLIER = 8
 TRUSTED_ARCHIVE_ORIGINS = frozenset(
     {
         "https://harambelogs.pl",
@@ -78,6 +83,7 @@ class ZonianHistoricalProvider:
         cutoff_ms: float,
         range_days: float | None,
         archive_year: int | None = None,
+        sampling_pass: int = 1,
     ) -> list[Message]:
         origins = await self._discover_origins(channel)
         list_payloads = await asyncio.gather(
@@ -105,9 +111,11 @@ class ZonianHistoricalProvider:
         if not locations:
             return []
 
-        available = list(locations)
         maximum = _maximum_dates(range_days)
-        chosen = sample_even_dates(available, maximum)
+        if sampling_pass > 1:
+            maximum = min(maximum, MAX_EXPANSION_DATES)
+        chosen_counts = await self._choose_active_dates(channel, locations, maximum)
+        chosen = list(chosen_counts)
         per_date_limit = min(
             MAX_HISTORICAL_MESSAGES_PER_DATE,
             max(1, MAX_HISTORICAL_MESSAGES // len(chosen)),
@@ -118,7 +126,14 @@ class ZonianHistoricalProvider:
             dates = chosen[start : start + HISTORICAL_FETCH_CONCURRENCY]
             batches = await asyncio.gather(
                 *(
-                    self._fetch_date(channel, date, tuple(locations[date]), per_date_limit)
+                    self._fetch_date(
+                        channel,
+                        date,
+                        tuple(locations[date]),
+                        per_date_limit,
+                        chosen_counts[date],
+                        sampling_pass,
+                    )
                     for date in dates
                 ),
                 return_exceptions=True,
@@ -133,6 +148,49 @@ class ZonianHistoricalProvider:
                     break
                 raise ArchiveTooLargeError(archive_year)
         return messages[:MAX_HISTORICAL_MESSAGES]
+
+    async def _choose_active_dates(
+        self,
+        channel: str,
+        locations: dict[ArchiveDate, list[str]],
+        maximum: int,
+    ) -> dict[ArchiveDate, int]:
+        buckets = date_buckets(list(locations), maximum)
+        candidates = [
+            date
+            for bucket in buckets
+            for date in _sample_evenly(bucket, ACTIVITY_CANDIDATES_PER_BUCKET)
+        ]
+        semaphore = asyncio.Semaphore(ARCHIVE_STATS_CONCURRENCY)
+
+        async def activity(date: ArchiveDate) -> tuple[ArchiveDate, int]:
+            async with semaphore:
+                today = datetime.now(UTC).date().isoformat()
+                cache_ttl = 300 if date_key(date) == today else 86_400
+                try:
+                    count = await self._fetch_message_count(
+                        locations[date][0], channel, date, cache_ttl=cache_ttl
+                    )
+                except Exception:
+                    count = 0
+                return date, count
+
+        counts = dict(await asyncio.gather(*(activity(date) for date in candidates)))
+        chosen: dict[ArchiveDate, int] = {}
+        for bucket in buckets:
+            bucket_candidates = _sample_evenly(bucket, ACTIVITY_CANDIDATES_PER_BUCKET)
+            midpoint = (len(bucket) - 1) / 2
+            positions = {date: bucket.index(date) for date in bucket_candidates}
+            date = max(
+                bucket_candidates,
+                key=lambda candidate: (
+                    counts[candidate],
+                    -abs(positions[candidate] - midpoint),
+                    date_key(candidate),
+                ),
+            )
+            chosen[date] = counts[date]
+        return chosen
 
     async def _discover_origins(self, channel: str) -> tuple[str, ...]:
         payload = await self._client.get_json(
@@ -197,28 +255,44 @@ class ZonianHistoricalProvider:
         return ArchiveDate(year, month, day) if end_of_day >= cutoff_ms else None
 
     async def _fetch_date(
-        self, channel: str, date: ArchiveDate, origins: tuple[str, ...], message_limit: int
+        self,
+        channel: str,
+        date: ArchiveDate,
+        origins: tuple[str, ...],
+        message_limit: int,
+        message_count: int,
+        sampling_pass: int,
     ) -> list[Message]:
         suffix = f"/{date.day}" if date.day else ""
         today = datetime.now(UTC).date().isoformat()
-        candidate_limit = message_limit * PARSE_CANDIDATE_MULTIPLIER
+        initial_candidate_limit = message_limit * INITIAL_PARSE_CANDIDATE_MULTIPLIER
+        parse_candidate_multiplier = (
+            INITIAL_PARSE_CANDIDATE_MULTIPLIER
+            if sampling_pass == 1
+            else EXPANSION_PARSE_CANDIDATE_MULTIPLIER
+        )
         for origin in origins:
             cache_ttl = 300 if date_key(date) == today else 86_400
-            message_count = await self._fetch_message_count(
-                origin, channel, date, cache_ttl=cache_ttl
-            )
             parsed: list[Message] = []
-            window_count = (
-                1
-                if message_count <= candidate_limit
-                else min(HISTORICAL_WINDOWS_PER_DATE, message_limit)
-            )
+            if sampling_pass > 1 and message_count <= initial_candidate_limit:
+                return []
+            window_count = 1
+            if message_count > initial_candidate_limit:
+                window_count = min(
+                    INITIAL_WINDOWS_PER_DATE if sampling_pass == 1 else EXPANSION_WINDOWS_PER_DATE,
+                    message_limit,
+                )
             for window_index in range(window_count):
                 window_quota = message_limit // window_count + int(
                     window_index < message_limit % window_count
                 )
-                window_limit = window_quota * PARSE_CANDIDATE_MULTIPLIER
-                center = (2 * window_index + 1) * message_count // (2 * window_count)
+                window_limit = window_quota * parse_candidate_multiplier
+                if sampling_pass == 1:
+                    center = (2 * window_index + 1) * message_count // (2 * window_count)
+                else:
+                    center = (
+                        (2 * window_index + 1) * message_count // (2 * EXPANSION_WINDOWS_PER_DATE)
+                    )
                 offset = min(
                     max(0, center - window_limit // 2),
                     max(0, message_count - window_limit),

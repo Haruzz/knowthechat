@@ -130,6 +130,64 @@ async def test_zonian_provider_samples_stable_spread_windows_from_a_busy_day() -
 
 
 @pytest.mark.asyncio
+async def test_zonian_provider_expansion_uses_different_bounded_windows() -> None:
+    list_url = "https://logs.zonian.dev/list?channel=channel"
+    stats_url = (
+        "https://logs.zonian.dev/channel/channel/stats"
+        "?from=2025-01-27T00%3A00%3A00Z&to=2025-01-27T23%3A59%3A59.999999Z"
+    )
+    offsets = (11_500, 36_500, 61_500, 86_500)
+    urls = [
+        f"https://logs.zonian.dev/channel/channel/2025/01/27?jsonBasic=1&limit=2000&offset={offset}"
+        for offset in offsets
+    ]
+    client = FakeHttpClient(
+        {
+            f"{HISTORY_ORIGIN}/api/channel": {"channelLogs": {"instances": [HISTORY_ORIGIN]}},
+            list_url: {"availableLogs": [{"year": "2025", "month": "01", "day": "27"}]},
+            stats_url: {"messageCount": 100_000},
+            **{
+                url: {"messages": [historical_message(f"expanded-{index}", "2025-01-27T12:00:00Z")]}
+                for index, url in enumerate(urls)
+            },
+        }
+    )
+
+    messages = await ZonianHistoricalProvider(client).fetch(
+        "channel", 0, None, 2025, sampling_pass=2
+    )
+
+    assert [message.id for message in messages] == [f"expanded-{index}" for index in range(4)]
+    assert [call["url"] for call in client.calls if "?jsonBasic=1" in call["url"]] == urls
+
+
+@pytest.mark.asyncio
+async def test_zonian_provider_selects_active_days_within_chronological_buckets() -> None:
+    dates = [{"year": "2025", "month": "01", "day": str(day)} for day in range(1, 13)]
+    responses: dict[str, Any] = {
+        f"{HISTORY_ORIGIN}/api/channel": {"channelLogs": {"instances": [HISTORY_ORIGIN]}},
+        f"{HISTORY_ORIGIN}/list?channel=channel": {"availableLogs": dates},
+    }
+    busy_days = {2, 5, 8, 11}
+    for day in range(1, 13):
+        stats_url = (
+            f"{HISTORY_ORIGIN}/channel/channel/stats"
+            f"?from=2025-01-{day:02d}T00%3A00%3A00Z"
+            f"&to=2025-01-{day:02d}T23%3A59%3A59.999999Z"
+        )
+        responses[stats_url] = {"messageCount": 500 if day in busy_days else 5}
+        if day in busy_days:
+            responses[
+                f"{HISTORY_ORIGIN}/channel/channel/2025/01/{day}?jsonBasic=1&limit=4000&offset=0"
+            ] = {"messages": [historical_message(f"day-{day}", f"2025-01-{day:02d}T12:00:00Z")]}
+
+    client = FakeHttpClient(responses)
+    messages = await ZonianHistoricalProvider(client).fetch("channel", 0, 30, 2025)
+
+    assert [message.id for message in messages] == [f"day-{day}" for day in sorted(busy_days)]
+
+
+@pytest.mark.asyncio
 async def test_discovered_instances_are_unioned_for_calendar_years() -> None:
     discovery_url = "https://logs.zonian.dev/api/channel"
     logxx_list = "https://logxx.dev/list?channel=channel"

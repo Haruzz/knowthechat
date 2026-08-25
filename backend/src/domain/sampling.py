@@ -10,14 +10,20 @@ def date_key(date: ArchiveDate) -> str:
 
 
 def sample_even_dates(dates: Sequence[ArchiveDate], maximum: int) -> list[ArchiveDate]:
+    return [bucket[(len(bucket) - 1) // 2] for bucket in date_buckets(dates, maximum)]
+
+
+def date_buckets(dates: Sequence[ArchiveDate], maximum: int) -> list[list[ArchiveDate]]:
+    """Split available dates into deterministic chronological sections."""
+    if maximum <= 0:
+        return []
     sorted_dates = sorted(dates, key=date_key)
-    if len(sorted_dates) <= maximum:
-        return sorted_dates
-    earlier = sorted_dates[:-1]
-    picked: list[ArchiveDate] = []
-    for index in range(maximum - 1):
-        start = index * len(earlier) // (maximum - 1)
-        end = max(start + 1, (index + 1) * len(earlier) // (maximum - 1))
-        bucket = earlier[start:end]
-        picked.append(bucket[(len(bucket) - 1) // 2])
-    return [*picked, sorted_dates[-1]]
+    bucket_count = min(len(sorted_dates), maximum)
+    return [
+        sorted_dates[
+            index * len(sorted_dates) // bucket_count : (index + 1)
+            * len(sorted_dates)
+            // bucket_count
+        ]
+        for index in range(bucket_count)
+    ]

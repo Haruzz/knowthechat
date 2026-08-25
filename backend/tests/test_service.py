@@ -47,10 +47,17 @@ def make_recent_message(index: int, *, sent_at: int = 1_700_000_000_000) -> str:
 
 class FakeHistorical:
     def __init__(
-        self, messages: list[Message] | None = None, error: Exception | None = None
+        self,
+        messages: list[Message] | None = None,
+        error: Exception | None = None,
+        expansion_messages: list[Message] | None = None,
+        expansion_error: Exception | None = None,
     ) -> None:
         self.messages = messages or []
         self.error = error
+        self.expansion_messages = expansion_messages or []
+        self.expansion_error = expansion_error
+        self.sampling_passes: list[int] = []
 
     async def fetch(
         self,
@@ -58,7 +65,13 @@ class FakeHistorical:
         cutoff_ms: float,
         range_days: float | None,
         archive_year: int | None = None,
+        sampling_pass: int = 1,
     ) -> list[Message]:
+        self.sampling_passes.append(sampling_pass)
+        if sampling_pass > 1:
+            if self.expansion_error:
+                raise self.expansion_error
+            return self.expansion_messages
         if self.error:
             raise self.error
         return self.messages
@@ -196,6 +209,74 @@ async def test_sparse_historical_archive_does_not_use_recent_fallback() -> None:
     assert response.total == 3
     assert response.source == "historical"
     assert {quote.difficulty for quote in response.quotes} == {"easy"}
+
+
+@pytest.mark.asyncio
+async def test_sparse_playable_pool_gets_one_bounded_expansion_pass() -> None:
+    initial = [make_message(index) for index in range(3)]
+    extra = [make_message(index) for index in range(3, 8)]
+    historical = FakeHistorical(initial, expansion_messages=extra)
+
+    response = await service(historical).execute(
+        PublicArchiveRequest.model_validate(
+            {"channel": "channel", "archiveYear": 2023, "chatterPool": 25}
+        )
+    )
+
+    assert historical.sampling_passes == [1, 2]
+    assert response.total == 8
+    assert len(response.quotes) == 8
+
+
+@pytest.mark.asyncio
+async def test_full_playable_pool_skips_expansion() -> None:
+    messages = [
+        make_message(author * 100 + quote, user_id=f"u{author}", name=f"User{author}")
+        for author in range(25)
+        for quote in range(15)
+    ]
+    historical = FakeHistorical(messages)
+
+    response = await service(historical).execute(
+        PublicArchiveRequest.model_validate(
+            {"channel": "channel", "archiveYear": 2023, "chatterPool": 25}
+        )
+    )
+
+    assert historical.sampling_passes == [1]
+    assert len(response.quotes) == 375
+
+
+@pytest.mark.asyncio
+async def test_response_quotes_are_representative_and_bounded_per_chatter() -> None:
+    historical = FakeHistorical([make_message(index) for index in range(30)])
+
+    response = await service(historical).execute(
+        PublicArchiveRequest.model_validate(
+            {"channel": "channel", "archiveYear": 2023, "chatterPool": 25}
+        )
+    )
+
+    assert len(response.quotes) == 25
+    assert response.quotes[0].id == "m-u1-0"
+    assert response.quotes[-1].id == "m-u1-29"
+
+
+@pytest.mark.asyncio
+async def test_expansion_failure_keeps_the_initial_game() -> None:
+    historical = FakeHistorical(
+        [make_message(index) for index in range(3)],
+        expansion_error=ArchiveProviderUnavailableError(),
+    )
+
+    response = await service(historical).execute(
+        PublicArchiveRequest.model_validate(
+            {"channel": "channel", "archiveYear": 2023, "chatterPool": 25}
+        )
+    )
+
+    assert historical.sampling_passes == [1, 2]
+    assert response.total == 3
 
 
 @pytest.mark.asyncio
