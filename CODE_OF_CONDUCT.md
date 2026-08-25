@@ -1,8 +1,8 @@
 # Code of conduct
 
-## Our commitment
+## My commitment
 
-We are committed to making participation in Know The Chat welcoming and
+I am committed to making participation in Know The Chat welcoming and
 harassment-free for everyone, regardless of experience, identity, appearance,
 background, or ability.
 
@@ -11,7 +11,7 @@ background, or ability.
 - Be respectful, constructive, and specific.
 - Assume good intent while addressing the substance of disagreements.
 - Respect privacy and do not publish private messages or personal information.
-- Accept maintainers' decisions about project scope and moderation.
+- Accept the maintainer's decisions about project scope and moderation.
 - Focus criticism on code, behavior, and ideas rather than people.
 
 ## Unacceptable behavior
@@ -23,9 +23,9 @@ project spaces or when representing the project.
 ## Enforcement
 
 Report conduct concerns privately through GitHub's **Report a vulnerability**
-feature. Maintainers may edit or remove contributions, lock discussions, issue
-warnings, or temporarily or permanently exclude participants when necessary.
-Reports will be handled as confidentially as practical.
+feature. I may edit or remove contributions, lock discussions, issue warnings,
+or temporarily or permanently exclude participants when necessary. I will
+handle reports as confidentially as practical.
 
 This policy applies to repository discussions, issues, pull requests, reviews,
 and other spaces operated by the project.
