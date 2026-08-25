@@ -2,6 +2,8 @@
 
 Know The Chat is a Twitch chat guessing game. Its React single-page application asks a same-origin Cloudflare Python Worker for public archived messages, then builds the game entirely in the browser.
 
+This is an unofficial community project. It is not affiliated with or endorsed by Twitch, Amazon, any featured streamer, or the public archive and emote providers it uses. See the [privacy and public-data notice](PRIVACY.md) and [third-party notices](THIRD_PARTY_NOTICES.md).
+
 ## Architecture
 
 ```text
@@ -68,7 +70,7 @@ npm run dev:frontend
 
 The backend listens on `127.0.0.1:8787`. Vite prints the frontend URL and proxies `/api/*` to that backend, so browser requests remain same-origin from the application's perspective. Set `KNOWTHECHAT_BACKEND_ORIGIN` before starting Vite only if the backend uses another origin.
 
-## Validation and deployment preparation
+## Validation
 
 ```bash
 npm run check
@@ -87,13 +89,7 @@ npm run check:backend
 npm run deploy:dry-run
 ```
 
-Production deployment is intentionally explicit:
-
-```bash
-npm run deploy:cloudflare
-```
-
-Do not run it casually: it builds the Vite frontend and deploys the combined asset/Python Worker bundle to the existing `know-the-chat` Worker and custom domains. No secrets or storage bindings are required.
+The deployment dry run validates the Worker bundle without authenticating to or changing a Cloudflare account. Production deployment is maintainer-only and deliberately absent from the normal contributor workflow. To deploy a fork to your own Cloudflare account, follow [the self-hosting guide](docs/self-hosting.md).
 
 ## CI/CD
 
@@ -106,3 +102,13 @@ GitHub Actions validates pull requests:
 2. **Build:** creates the Vite production bundle and performs a complete Cloudflare deployment dry run
 
 Pull requests therefore have to pass both jobs before they are ready to merge. After a merge or direct push to `main`, Cloudflare Workers Builds checks out that commit, builds the frontend, and deploys the combined Worker. Production credentials stay inside Cloudflare; GitHub Actions does not deploy and does not require Cloudflare secrets.
+
+Pull requests from forks run with read-only repository permissions and receive no production credentials. Only maintainers can merge to the protected `main` branch, which is the production deployment boundary.
+
+## Contributing and security
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a substantial pull request. Report suspected vulnerabilities privately by following [SECURITY.md](SECURITY.md), and follow the project [code of conduct](CODE_OF_CONDUCT.md) in community spaces.
+
+## License
+
+Know The Chat is available under the [MIT License](LICENSE).

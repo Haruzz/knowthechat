@@ -1,0 +1,31 @@
+name: Bug report
+description: Report a reproducible problem with Know The Chat
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not report security vulnerabilities or reproduce private chat content here. Use the Security tab for private vulnerability reports.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the behavior and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest reliable sequence that demonstrates the problem.
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and operating system
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Include screenshots or sanitized logs if useful. Do not include credentials or non-public data.

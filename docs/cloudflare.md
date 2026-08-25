@@ -104,16 +104,18 @@ Preflight without changing Cloudflare:
 npm run check
 ```
 
-Authorized production cutover:
+Authorized maintainer production cutover:
 
 ```bash
-npm run deploy:cloudflare
+KNOWTHECHAT_PRODUCTION_DEPLOY=1 npm run deploy:production
 ```
 
-This manual fallback rebuilds the frontend before `pywrangler deploy`. Normal
-production deployments are performed by Workers Builds. The only required binding
-is the automatically provisioned `ASSETS` binding; no secrets, KV, D1, R2, Images,
-or service bindings are required.
+The explicit environment variable is a guard against casual local execution; it
+is not an authentication mechanism. Wrangler still requires a Cloudflare login or
+API token with access to the production account. This manual fallback rebuilds the
+frontend before `pywrangler deploy`. Normal production deployments are performed
+by Workers Builds. The only required binding is the automatically provisioned
+`ASSETS` binding; no secrets, KV, D1, R2, Images, or service bindings are required.
 
 Rollback immediately if health checks fail:
 

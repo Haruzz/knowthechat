@@ -27,7 +27,7 @@
     "check": "npm run precommit:check && npm run typecheck && npm run test && npm run deploy:dry-run",
     "deploy:dry-run": "npm run build -w frontend && sh scripts/with-uv.sh run --locked --directory backend pywrangler deploy --dry-run",
     "deploy:worker": "sh scripts/with-uv.sh run --locked --directory backend pywrangler deploy",
-    "deploy:cloudflare": "npm run build -w frontend && npm run deploy:worker"
+    "deploy:production": "bash scripts/deploy-production.sh"
   },
   "lint-staged": {
     "*.{css,html,js,json,jsonc,jsx,md,mjs,ts,tsx,yaml,yml}": "prettier --write",

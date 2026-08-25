@@ -1,0 +1,13 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Generated dependencies and build output are not repository content."
+paths = [
+  '''(^|/)node_modules/''',
+  '''(^|/)backend/\.venv(-workers)?/''',
+  '''(^|/)backend/python_modules/''',
+  '''(^|/)frontend/dist/''',
+  '''(^|/)\.wrangler/''',
+  '''(^|/)(coverage|\.pytest_cache|\.ruff_cache)/''',
+]
