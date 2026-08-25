@@ -5,12 +5,14 @@ from typing import Any
 
 import pytest
 
+from domain.models import ArchiveDate, Message
 from providers.archives import (
     ARCHIVE_LIST_CACHE_TTL,
     ARCHIVE_RESPONSE_MAX_BYTES,
     ARCHIVE_STATS_MAX_BYTES,
     HISTORICAL_FETCH_CONCURRENCY,
     HISTORY_ORIGIN,
+    MAX_EXPANSION_MESSAGES,
     MAX_HISTORICAL_DATES,
     MAX_HISTORICAL_MESSAGES,
     MAX_OVERSIZED_ARCHIVE_DATES,
@@ -55,6 +57,32 @@ class FakeHttpClient:
             }
         )
         return self.responses.get(url)
+
+
+class RecordingHistoricalProvider(ZonianHistoricalProvider):
+    def __init__(self, client: FakeHttpClient) -> None:
+        super().__init__(client)
+        self.message_limits: list[int] = []
+
+    async def _choose_active_dates(
+        self,
+        channel: str,
+        locations: dict[ArchiveDate, list[str]],
+        maximum: int,
+    ) -> dict[ArchiveDate, int]:
+        return {date: 100_000 for date in list(locations)[:maximum]}
+
+    async def _fetch_date(
+        self,
+        channel: str,
+        date: ArchiveDate,
+        origins: tuple[str, ...],
+        message_limit: int,
+        message_count: int,
+        sampling_pass: int,
+    ) -> list[Message]:
+        self.message_limits.append(message_limit)
+        return []
 
 
 def historical_message(
@@ -136,9 +164,9 @@ async def test_zonian_provider_expansion_uses_different_bounded_windows() -> Non
         "https://logs.zonian.dev/channel/channel/stats"
         "?from=2025-01-27T00%3A00%3A00Z&to=2025-01-27T23%3A59%3A59.999999Z"
     )
-    offsets = (11_500, 36_500, 61_500, 86_500)
+    offsets = (12_000, 37_000, 62_000, 87_000)
     urls = [
-        f"https://logs.zonian.dev/channel/channel/2025/01/27?jsonBasic=1&limit=2000&offset={offset}"
+        f"https://logs.zonian.dev/channel/channel/2025/01/27?jsonBasic=1&limit=1000&offset={offset}"
         for offset in offsets
     ]
     client = FakeHttpClient(
@@ -159,6 +187,23 @@ async def test_zonian_provider_expansion_uses_different_bounded_windows() -> Non
 
     assert [message.id for message in messages] == [f"expanded-{index}" for index in range(4)]
     assert [call["url"] for call in client.calls if "?jsonBasic=1" in call["url"]] == urls
+
+
+@pytest.mark.asyncio
+async def test_zonian_provider_expansion_has_its_own_smaller_message_budget() -> None:
+    dates = [{"year": "2025", "month": f"{month:02d}", "day": "1"} for month in range(1, 7)]
+    client = FakeHttpClient(
+        {
+            f"{HISTORY_ORIGIN}/api/channel": {"channelLogs": {"instances": [HISTORY_ORIGIN]}},
+            f"{HISTORY_ORIGIN}/list?channel=channel": {"availableLogs": dates},
+        }
+    )
+    provider = RecordingHistoricalProvider(client)
+
+    await provider.fetch("channel", 0, None, 2025, sampling_pass=2)
+
+    assert provider.message_limits == [MAX_EXPANSION_MESSAGES // len(dates)] * len(dates)
+    assert sum(provider.message_limits) <= MAX_EXPANSION_MESSAGES
 
 
 @pytest.mark.asyncio

@@ -29,13 +29,14 @@ MAX_ARCHIVE_INSTANCES = 6
 MAX_HISTORICAL_DATES = 12
 MAX_EXPANSION_DATES = 6
 MAX_HISTORICAL_MESSAGES = 6_000
+MAX_EXPANSION_MESSAGES = 4_000
 MAX_HISTORICAL_MESSAGES_PER_DATE = 1_000
 INITIAL_WINDOWS_PER_DATE = 2
 EXPANSION_WINDOWS_PER_DATE = 4
 ACTIVITY_CANDIDATES_PER_BUCKET = 3
 MAX_OVERSIZED_ARCHIVE_DATES = 2
 INITIAL_PARSE_CANDIDATE_MULTIPLIER = 4
-EXPANSION_PARSE_CANDIDATE_MULTIPLIER = 8
+EXPANSION_PARSE_CANDIDATE_MULTIPLIER = 4
 TRUSTED_ARCHIVE_ORIGINS = frozenset(
     {
         "https://harambelogs.pl",
@@ -116,9 +117,10 @@ class ZonianHistoricalProvider:
             maximum = min(maximum, MAX_EXPANSION_DATES)
         chosen_counts = await self._choose_active_dates(channel, locations, maximum)
         chosen = list(chosen_counts)
+        message_budget = MAX_HISTORICAL_MESSAGES if sampling_pass == 1 else MAX_EXPANSION_MESSAGES
         per_date_limit = min(
             MAX_HISTORICAL_MESSAGES_PER_DATE,
-            max(1, MAX_HISTORICAL_MESSAGES // len(chosen)),
+            max(1, message_budget // len(chosen)),
         )
         messages: list[Message] = []
         oversized_dates = 0
@@ -147,7 +149,7 @@ class ZonianHistoricalProvider:
                 if messages:
                     break
                 raise ArchiveTooLargeError(archive_year)
-        return messages[:MAX_HISTORICAL_MESSAGES]
+        return messages[:message_budget]
 
     async def _choose_active_dates(
         self,
