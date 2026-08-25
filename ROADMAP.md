@@ -4,32 +4,6 @@ Know The Chat is still evolving. This document collects product ideas and links
 to streamers who have played the game. The roadmap is a backlog, not a promise
 that every item will be implemented.
 
-## Gameplay ideas
-
-- **Streak celebrations:** Reward consecutive correct guesses with increasingly
-  energetic feedback—for example, a flame animation after five correct answers
-  and a larger visual or audio effect after ten.
-- **Message-age difficulty:** Let players choose a difficulty based on how old
-  the chat messages are, or use message age as part of the difficulty model.
-- **Better archive expectations:** Before a lookup begins, explain that the game
-  relies on public archive data and that some streamers or time periods may not
-  be available.
-- **English and Danish localization:** Offer the interface in both languages
-  while keeping the selected chat message and game round unchanged when the
-  player switches language.
-- **Improve very recent rounds:** Revisit whether messages from today produce
-  entertaining rounds, and consider excluding them or ranking them differently.
-
-## Open product questions
-
-- Which streak milestones feel rewarding without interrupting the pace of the
-  game?
-- Should difficulty be a player setting, an automatic progression system, or a
-  combination of both?
-- How should the interface distinguish between an unknown streamer and a known
-  streamer whose public archive has no usable messages?
-- What minimum age or amount of chat history produces consistently fun rounds?
-
 ## Streamers who have played Know The Chat
 
 These streamers have played Know The Chat on Twitch. The links below point to
