@@ -619,6 +619,45 @@ body {
     "Segoe UI",
     sans-serif;
 }
+.site-with-ad-rails {
+  min-height: 100vh;
+  background: #151220;
+}
+.ad-rail {
+  display: none;
+}
+@media (min-width: 1500px) {
+  .site-with-ad-rails {
+    display: grid;
+    grid-template-columns:
+      minmax(160px, 1fr) minmax(0, 1280px)
+      minmax(160px, 1fr);
+  }
+  .site-with-ad-rails > main {
+    min-width: 0;
+  }
+  .ad-rail {
+    display: flex;
+    min-width: 0;
+    padding: 96px 12px 24px;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .ad-rail-label {
+    color: #746d80;
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .ad-rail .adsbygoogle {
+    display: block;
+    width: 100%;
+    min-width: 160px;
+    max-width: 300px;
+    height: 600px;
+  }
+}
 .app-shell {
   min-height: 100vh;
   display: grid;

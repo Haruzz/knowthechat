@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import Site, { isPrivacyPath } from "./Site";
 
@@ -7,6 +7,7 @@ const originalPath = window.location.pathname;
 
 afterEach(() => {
   window.history.replaceState({}, "", originalPath);
+  vi.unstubAllGlobals();
 });
 
 describe("site routing", () => {
@@ -39,5 +40,32 @@ describe("site routing", () => {
     expect(document.title).toBe("Privacy Policy | Know The Chat");
     expect(canonical.href).toBe("https://knowthechat.com/privacy");
     canonical.remove();
+  });
+
+  it("renders dedicated ad rails on wide desktop screens", () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === "(min-width: 1500px)",
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    window.history.replaceState({}, "", "/");
+    render(<Site />);
+
+    const leftRail = screen.getByRole("complementary", {
+      name: "Left advertisement",
+    });
+    const rightRail = screen.getByRole("complementary", {
+      name: "Right advertisement",
+    });
+
+    expect(leftRail.querySelector("ins")?.dataset.adSlot).toBe("9515984206");
+    expect(rightRail.querySelector("ins")?.dataset.adSlot).toBe("2532763136");
+    expect(leftRail.querySelector("ins")?.dataset.adFormat).toBe("vertical");
+    expect(rightRail.querySelector("ins")?.dataset.adFormat).toBe("vertical");
   });
 });
