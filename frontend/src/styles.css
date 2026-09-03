@@ -204,6 +204,8 @@
   margin: 0 auto;
 }
 .privacy-header {
+  display: block;
+  margin-bottom: 0;
   padding-bottom: 34px;
   border-bottom: 1px solid #453e58;
 }
@@ -214,7 +216,7 @@
 }
 .privacy-back {
   display: inline-block;
-  margin-bottom: 46px;
+  margin-bottom: 30px;
   font-size: 13px;
   font-weight: 700;
   text-decoration: none;
@@ -230,20 +232,20 @@
   outline-offset: 4px;
 }
 .privacy-header h1 {
-  margin: 8px 0 12px;
+  margin: 0;
   color: #fff;
   font-family: Georgia, serif;
-  font-size: clamp(42px, 7vw, 68px);
+  font-size: clamp(40px, 6vw, 58px);
   line-height: 1.05;
 }
 .privacy-updated {
-  margin: 0;
+  margin: 20px 0 0;
   color: #938aa1;
   font-size: 12px;
 }
 .privacy-intro {
   max-width: 680px;
-  margin: 28px 0 0;
+  margin: 20px 0 0;
   color: #c8c0d4;
   font-size: 17px;
   line-height: 1.7;
@@ -275,7 +277,7 @@
     padding: 38px 20px 72px;
   }
   .privacy-back {
-    margin-bottom: 34px;
+    margin-bottom: 26px;
   }
   .privacy-policy section {
     padding: 25px 0;

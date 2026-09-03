@@ -25,7 +25,7 @@ describe("site routing", () => {
     render(<Site />);
 
     expect(
-      screen.getByRole("heading", { name: "Privacy policy", level: 1 }),
+      screen.getByRole("heading", { name: "Privacy Policy", level: 1 }),
     ).toBeTruthy();
     expect(screen.getByText(/Google AdSense/)).toBeTruthy();
     expect(

@@ -33,11 +33,9 @@ export default function PrivacyPage() {
       <article className="privacy-policy">
         <header className="privacy-header">
           <a className="privacy-back" href="/">
-            ← Back to the game
+            ← Know The Chat
           </a>
-          <p className="eyebrow">KNOW THE CHAT</p>
-          <h1>Privacy policy</h1>
-          <p className="privacy-updated">Last updated September 3, 2026</p>
+          <h1>Privacy Policy</h1>
           <p className="privacy-intro">
             Know The Chat is an unofficial Twitch chat guessing game operated by
             Harun Bulut. This policy explains what information is processed when
@@ -45,6 +43,7 @@ export default function PrivacyPage() {
             affiliated with or endorsed by Twitch, Amazon, featured streamers,
             or the archive and emote providers it uses.
           </p>
+          <p className="privacy-updated">Effective September 3, 2026</p>
         </header>
 
         <section>
