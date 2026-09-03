@@ -195,6 +195,9 @@ function ProjectLinks() {
         </svg>
         Source
       </a>
+      <a className="project-link privacy-link" href="/privacy">
+        Privacy
+      </a>
     </nav>
   );
 }

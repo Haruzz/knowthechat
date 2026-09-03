@@ -29,6 +29,9 @@ describe("Who Said It frontend", () => {
     expect(repositoryLink.getAttribute("href")).toBe(
       "https://github.com/Haruzz/knowthechat",
     );
+    expect(
+      screen.getByRole("link", { name: "Privacy" }).getAttribute("href"),
+    ).toBe("/privacy");
   });
 
   it("issues the same-origin public archive request", async () => {
