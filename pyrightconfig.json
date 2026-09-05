@@ -1,5 +1,5 @@
 {
-  "include": ["backend/src", "backend/tests"],
+  "include": ["backend/src", "backend/tests", "scripts/*.py"],
   "extraPaths": ["backend/src"],
   "venvPath": "backend",
   "venv": ".venv",

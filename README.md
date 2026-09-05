@@ -80,6 +80,8 @@ This runs [Cloudflare's official `pywrangler types` generator](https://developer
 
 Known lobby responses use shared field types, and the Python SDK's wrapped bindings use small protocols. Incoming JSON is validated before being exposed as those types. Keep `Any` limited to boundaries that truly have no known shape; `object` in Python and `unknown` in TypeScript require callers to narrow unknown data before use. Pyright also checks `backend/tests/test_editor_types.py` to catch regressions in representative header, socket, storage and lobby-field types.
 
+The audio preparation scripts declare pinned `numpy` and `soundfile` dependencies in their inline uv metadata. Running `uv run scripts/prepare-music.py` creates an isolated environment for that script; the editor uses `backend/.venv` instead. The same packages are included in the project's development dependencies so imports and navigation also work in the editor. After pulling changes, run `uv sync --project backend` and select `backend/.venv/Scripts/python.exe` in VS Code on Windows (`backend/.venv/bin/python` on macOS/Linux). Pyright checks the audio scripts as part of `npm run check`. These development packages are excluded from the Python Worker bundle; normal game builds use the committed audio files.
+
 ## Local streak playground
 
 Start the standalone playground from the repository root:

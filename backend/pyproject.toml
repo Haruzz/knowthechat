@@ -13,10 +13,12 @@ dependencies = [
 [dependency-groups]
 dev = [
   "httpx>=0.28.1",
+  "numpy==2.4.3",
   "pyright>=1.1.404,<2",
   "pytest>=8.4,<10",
   "pytest-asyncio>=1.1,<2",
   "ruff>=0.12,<1",
+  "soundfile==0.13.1",
   "workers-py>=1.16.7,<2",
   "workers-runtime-sdk",
 ]
@@ -37,7 +39,7 @@ extend-exclude = ["typings"]
 select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
 
 [tool.pyright]
-include = ["src", "tests"]
+include = ["src", "tests", "../scripts/*.py"]
 extraPaths = ["src"]
 stubPath = "typings"
 pythonVersion = "3.13"
