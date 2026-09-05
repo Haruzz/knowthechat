@@ -71,8 +71,7 @@
   margin: 0 0 8px;
 }
 .party-form input,
-.party-form select,
-.party-invite-fallback input {
+.party-form select {
   display: block;
   width: 100%;
   min-width: 0;
@@ -144,12 +143,6 @@
   align-items: center;
   gap: 18px;
   flex-shrink: 0;
-}
-.party-mini-code {
-  color: #bda6ff;
-  font-size: 14px;
-  font-weight: 850;
-  letter-spacing: 0.15em;
 }
 .party-secondary {
   padding: 10px 14px;
@@ -225,7 +218,7 @@
   background: linear-gradient(115deg, #332546, #242033);
   text-align: left;
 }
-.party-invite > div > span {
+.party-code > span {
   display: block;
   color: #b9a5d6;
   font-size: 10px;
@@ -233,21 +226,19 @@
   text-transform: uppercase;
   margin-bottom: 7px;
 }
-.party-invite strong {
+.party-code strong {
+  display: block;
   color: #f5efff;
   font-size: 34px;
   letter-spacing: 0.18em;
   font-variant-numeric: tabular-nums;
 }
-.party-invite-fallback {
-  display: block;
+.party-code > button {
   margin-top: 12px;
-  color: #baaaca;
-  text-align: left;
-  font-size: 12px;
 }
-.party-invite-fallback input {
-  margin-top: 8px;
+.party-invite-actions {
+  display: grid;
+  gap: 10px;
 }
 .party-scoreboard {
   margin: 28px 0;
@@ -488,8 +479,7 @@
 .party-game button:focus-visible,
 .party-setup button:focus-visible,
 .party-setup input:focus-visible,
-.party-setup select:focus-visible,
-.party-invite-fallback input:focus-visible {
+.party-setup select:focus-visible {
   outline: 3px solid #c6b2ff;
   outline-offset: 3px;
 }
@@ -524,19 +514,18 @@
   .party-header-actions {
     gap: 8px;
   }
-  .party-mini-code {
-    display: none;
-  }
   .party-invite {
     padding: 20px 15px;
     gap: 12px;
     flex-wrap: wrap;
   }
-  .party-invite strong {
+  .party-code strong {
     font-size: 30px;
   }
-  .party-invite .launch {
+  .party-invite-actions {
     flex-grow: 1;
+  }
+  .party-invite .launch {
     font-size: 12px;
   }
   .party-description {

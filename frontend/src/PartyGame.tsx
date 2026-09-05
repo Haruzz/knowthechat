@@ -250,7 +250,7 @@ export default function PartyGame({
   const [error, setError] = useState("");
   const [connectionError, setConnectionError] = useState("");
   const [copyStatus, setCopyStatus] = useState("");
-  const [showInvite, setShowInvite] = useState(false);
+  const [showCode, setShowCode] = useState(false);
   const [now, setNow] = useState(Date.now);
   const [clockOffset, setClockOffset] = useState(0);
   const [milestone, setMilestone] = useState<number | null>(null);
@@ -298,6 +298,15 @@ export default function PartyGame({
       nextRoom.revision < latest.revision
     )
       return;
+    if (latest?.code !== nextRoom.code || latest.you !== nextRoom.you) {
+      setShowCode(false);
+      setCopyStatus("");
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("room")) {
+        url.searchParams.delete("room");
+        window.history.replaceState(null, "", url);
+      }
+    }
     latestRoom.current = nextRoom;
     const receivedAt = Date.now();
     const player = nextRoom.players.find(
@@ -534,13 +543,17 @@ export default function PartyGame({
 
   const invite = new URL(window.location.href);
   if (room) invite.searchParams.set("room", room.code);
-  async function copyInvite() {
+  async function copyInvitation(kind: "code" | "link") {
+    if (!room) return;
     try {
-      await navigator.clipboard.writeText(invite.toString());
-      setCopyStatus("Invite copied!");
+      await navigator.clipboard.writeText(
+        kind === "code" ? room.code : invite.toString(),
+      );
+      setCopyStatus(kind === "code" ? "Room code copied!" : "Invite copied!");
     } catch {
-      setShowInvite(true);
-      setCopyStatus("Copy the invite link below and send it to your friends.");
+      setCopyStatus(
+        "Could not copy. Try again, or reveal the room code to copy it manually.",
+      );
     }
   }
 
@@ -796,7 +809,6 @@ export default function PartyGame({
           <strong>#{room.channel}</strong>
         </div>
         <div className="party-header-actions">
-          <span className="party-mini-code">{room.code}</span>
           <button
             className="party-secondary"
             disabled={Boolean(busy)}
@@ -827,28 +839,39 @@ export default function PartyGame({
               2–8 players
             </p>
             <div className="party-invite">
-              <div>
-                <span>Room code</span>
-                <strong>{room.code}</strong>
+              <div className="party-code">
+                <span>Room code{!showCode && " · hidden"}</span>
+                <strong id="party-room-code" aria-hidden={!showCode}>
+                  {showCode ? room.code : "••••••"}
+                </strong>
+                <button
+                  className="party-secondary"
+                  aria-expanded={showCode}
+                  aria-controls="party-room-code"
+                  onClick={() => setShowCode((visible) => !visible)}
+                >
+                  {showCode ? "Hide room code" : "Show room code"}
+                </button>
               </div>
-              <button className="launch" onClick={() => void copyInvite()}>
-                Copy invite link
-              </button>
+              <div className="party-invite-actions">
+                <button
+                  className="launch"
+                  onClick={() => void copyInvitation("code")}
+                >
+                  Copy room code
+                </button>
+                <button
+                  className="party-secondary"
+                  onClick={() => void copyInvitation("link")}
+                >
+                  Copy invite link
+                </button>
+              </div>
             </div>
             {copyStatus && (
               <p role="status" className="party-help">
                 {copyStatus}
               </p>
-            )}
-            {showInvite && (
-              <label className="party-invite-fallback">
-                Invite link
-                <input
-                  readOnly
-                  value={invite.toString()}
-                  onFocus={(event) => event.target.select()}
-                />
-              </label>
             )}
             <Scoreboard room={room} />
             {isHost ? (

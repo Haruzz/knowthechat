@@ -24,14 +24,16 @@ an official partnership or endorsement.
 
 The current implementation includes solo streak fire, accessibility preferences,
 private multiplayer lobbies, timed guesses, speed scoring, rematches and
-hibernating WebSockets for immediate room updates.
+hibernating WebSockets for immediate room updates. Room codes stay hidden until
+revealed, with separate copy controls for sharing off stream.
 
 Potential next additions:
 
 - Fresh-archive rematches and a daily shared challenge with a spoiler-free score card.
 - Team mode, where friends agree on one answer before the deadline.
-- Streamer controls such as hiding the room code until everyone is ready.
-- Public-room abuse controls and measured load tests before opening matchmaking.
+- Host controls for locking a lobby and removing disruptive players.
+- Larger viewer games with smaller room updates and measured load tests before raising the eight-player cap.
+- Room creation/join rate limits and application usage limits with headroom below the account's included allowances before opening public matchmaking.
 
 If you want to work on one of these ideas, open an issue first so the intended
 behavior and scope can be agreed before implementation. New suggestions are

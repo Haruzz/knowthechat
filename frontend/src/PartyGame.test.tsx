@@ -102,6 +102,7 @@ describe("private party game", () => {
     });
     expect(screen.queryByRole("region", { name: "Scoreboard" })).toBeNull();
     expect(screen.queryByRole("region", { name: "Lobby players" })).toBeNull();
+    expect(screen.queryByText("ABC234")).toBeNull();
     const difficulty = screen.getByText("medium");
     expect(difficulty.classList.contains("difficulty")).toBe(true);
     expect(difficulty.classList.contains("medium")).toBe(true);
@@ -189,6 +190,8 @@ describe("private party game", () => {
       code: "ABC234",
       token: "test-token",
     });
+    expect(screen.queryByText("ABC234")).toBeNull();
+    expect(screen.getByRole("button", { name: "Show room code" })).toBeTruthy();
     expect(
       (
         screen.getByRole("button", {
@@ -216,13 +219,18 @@ describe("private party game", () => {
       "The lobby returned an unexpected response. Please try again.",
     );
     expect(sessionStorage.getItem(SESSION_KEY)).toBeNull();
+    expect(window.location.search).toBe("?room=ABC234");
+    expect(screen.getByLabelText("Room code")).toHaveProperty(
+      "value",
+      "ABC234",
+    );
     expect(
       screen.getByRole("button", { name: "Join the crew →" }),
     ).toBeTruthy();
   });
 
   it("joins an invite from the URL and waits for the host", async () => {
-    window.history.replaceState(null, "", "/?room=abc234");
+    window.history.replaceState(null, "", "/?theme=dark&room=abc234#party");
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       response({
         token: "guest-token",
@@ -250,6 +258,9 @@ describe("private party game", () => {
     expect(
       screen.queryByRole("button", { name: /start the game/i }),
     ).toBeNull();
+    expect(window.location.search).toBe("?theme=dark");
+    expect(window.location.hash).toBe("#party");
+    expect(screen.queryByText("ABC234")).toBeNull();
   });
 
   it("restores the room, starts for the host, and locks guesses after submission", async () => {
@@ -543,7 +554,111 @@ describe("private party game", () => {
     expect(screen.getByRole("button", { name: "Leave lobby" })).toBeTruthy();
   });
 
-  it("provides a selectable invite when clipboard access fails and leaves cleanly", async () => {
+  it("hides the room code until explicitly revealed and can hide it again", async () => {
+    remember();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      response(waitingRoom()),
+    );
+    const { container } = render(<PartyGame onBack={vi.fn()} />);
+    const show = await screen.findByRole("button", { name: "Show room code" });
+    expect(show.getAttribute("aria-expanded")).toBe("false");
+    expect(container.innerHTML).not.toContain("ABC234");
+
+    fireEvent.click(show);
+    expect(screen.getByText("ABC234")).toBeTruthy();
+    const hide = screen.getByRole("button", { name: "Hide room code" });
+    expect(hide.getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.click(hide);
+    expect(container.innerHTML).not.toContain("ABC234");
+    expect(screen.getByText("Room code · hidden")).toBeTruthy();
+  });
+
+  it("hides the code again when entering another lobby", async () => {
+    remember();
+    let room = waitingRoom();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (String(input).endsWith("/leave")) return response({ ok: true });
+      if (input === "/api/rooms") {
+        room = { ...waitingRoom(), code: "DEF567" };
+        return response({ token: "new-token", room });
+      }
+      return response(room);
+    });
+    const { container } = render(<PartyGame onBack={vi.fn()} />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Show room code" }),
+    );
+    expect(screen.getByText("ABC234")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Leave lobby" }));
+    fireEvent.change(await screen.findByLabelText("Your display name"), {
+      target: { value: "Harun" },
+    });
+    fireEvent.change(screen.getByLabelText("Twitch channel"), {
+      target: { value: "example" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create private lobby →" }),
+    );
+    expect(
+      await screen.findByRole("button", { name: "Show room code" }),
+    ).toBeTruthy();
+    expect(container.innerHTML).not.toContain("ABC234");
+    expect(container.innerHTML).not.toContain("DEF567");
+    fireEvent.click(screen.getByRole("button", { name: "Show room code" }));
+    expect(screen.getByText("DEF567")).toBeTruthy();
+  });
+
+  it.each([
+    ["Copy room code", "Room code copied!"],
+    ["Copy invite link", "Invite copied!"],
+  ])("copies with %s without revealing the code", async (button, status) => {
+    remember();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      response(waitingRoom()),
+    );
+    const { container } = render(<PartyGame onBack={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: button }));
+    expect(await screen.findByText(status)).toBeTruthy();
+    const expected =
+      button === "Copy room code"
+        ? "ABC234"
+        : new URL("/?room=ABC234", window.location.origin).toString();
+    expect(writeText).toHaveBeenCalledWith(expected);
+    expect(expected).not.toContain("test-token");
+    expect(container.innerHTML).not.toContain("ABC234");
+    expect(screen.getByRole("button", { name: "Show room code" })).toBeTruthy();
+  });
+
+  it.each(["Copy room code", "Copy invite link"])(
+    "keeps the code hidden when %s is denied",
+    async (button) => {
+      remember();
+      const writeText = vi
+        .fn()
+        .mockRejectedValue(new Error("Clipboard denied"));
+      vi.stubGlobal("navigator", { clipboard: { writeText } });
+      vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+        response(waitingRoom()),
+      );
+      const { container } = render(<PartyGame onBack={vi.fn()} />);
+      fireEvent.click(await screen.findByRole("button", { name: button }));
+      expect(
+        await screen.findByText(
+          "Could not copy. Try again, or reveal the room code to copy it manually.",
+        ),
+      ).toBeTruthy();
+      expect(container.innerHTML).not.toContain("ABC234");
+      expect(screen.queryByLabelText("Invite link")).toBeNull();
+      expect(
+        screen.getByRole("button", { name: "Show room code" }),
+      ).toBeTruthy();
+    },
+  );
+
+  it("cleans up the saved session and invite when leaving", async () => {
     remember();
     window.history.replaceState(null, "", "/?room=ABC234");
     const onBack = vi.fn();
@@ -551,15 +666,7 @@ describe("private party game", () => {
       response(String(input).endsWith("/leave") ? { ok: true } : waitingRoom()),
     );
     render(<PartyGame onBack={onBack} />);
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Copy invite link" }),
-    );
-    const invite = (await screen.findByLabelText(
-      "Invite link",
-    )) as HTMLInputElement;
-    expect(invite.value).toContain("?room=ABC234");
-    expect(invite.value).not.toContain("test-token");
-    fireEvent.click(screen.getByRole("button", { name: "Leave lobby" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Leave lobby" }));
     await waitFor(() => expect(onBack).toHaveBeenCalledTimes(1));
     expect(sessionStorage.getItem(SESSION_KEY)).toBeNull();
     expect(window.location.search).toBe("");

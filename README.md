@@ -11,7 +11,7 @@ This is an unofficial community project. It is not affiliated with or endorsed b
 ## Game modes
 
 - **Solo:** choose a channel, archive period, chatter pool and game length. Five correct guesses ignite the screen edges; higher streaks unlock new celebrations. Track accuracy and your best streak, and toggle sound or effects. Reduced-motion preferences are respected.
-- **Play with friends:** create a private room for 2–8 players and share its invite code or link. Choose 5, 10 or 20 rounds and a 15, 20 or 30 second timer. Everyone gets the same three choices. Correct answers earn 1,000 points plus up to 500 for speed; the host advances after each shared reveal. Rematch without rebuilding the archive.
+- **Play with friends:** create a private room for 2–8 players and share its invite code or link. Room codes start hidden; copy the code or invite link without displaying it, or use Show/Hide to reveal it on stream. Choose 5, 10 or 20 rounds and a 15, 20 or 30 second timer. Everyone gets the same three choices. Correct answers earn 1,000 points plus up to 500 for speed; the host advances after each shared reveal. Rematch without rebuilding the archive.
 
 Rooms expire after two hours. Reloading the same browser tab restores your player session. Room updates arrive over hibernating WebSockets, with automatic reconnection and an HTTP fallback when needed; the server owns deadlines, scores and answer reveals. This mode is intended for casual matches with friends using public source material.
 
