@@ -271,11 +271,7 @@ export default function PartyGame({
   onBack: () => void;
   effectsEnabled?: boolean;
   preferences?: ReactNode;
-  onRoundRevealed?: (
-    correct: boolean,
-    streak: number,
-    timedOut?: boolean,
-  ) => void;
+  onRoundRevealed?: (correct: boolean, streak: number) => void;
   onInteraction?: () => void;
   onMusicStateChange?: (scene: MusicScene, urgent: boolean) => void;
   onCountdownTick?: (secondsLeft: number) => void;
@@ -307,7 +303,6 @@ export default function PartyGame({
   const backCallback = useRef(onBack);
   const latestRoom = useRef<Room | null>(null);
   const revealCallback = useRef(onRoundRevealed);
-  const revealInterrupted = useRef(false);
   const previousView = useRef<{
     code: string;
     phase: Room["phase"];
@@ -397,21 +392,6 @@ export default function PartyGame({
     backCallback.current = onBack;
   }, [onRoundRevealed, onBack]);
 
-  useEffect(() => {
-    const onVisibility = () => {
-      if (document.hidden) revealInterrupted.current = true;
-    };
-    const onPageHide = () => {
-      revealInterrupted.current = true;
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("pagehide", onPageHide);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("pagehide", onPageHide);
-    };
-  }, []);
-
   const finishLeave = useCallback(() => {
     if (!pendingLeave.current) return;
     pendingLeave.current = false;
@@ -464,8 +444,6 @@ export default function PartyGame({
       (member) => member.id === nextRoom.you,
     );
     const previous = previousView.current;
-    const interrupted = revealInterrupted.current;
-    revealInterrupted.current = document.hidden;
     const newlyRevealed =
       previous?.code === nextRoom.code &&
       previous.phase === "round" &&
@@ -484,17 +462,10 @@ export default function PartyGame({
     if (newlyRevealed && player) {
       if (player.streak > 0 && player.streak % 5 === 0)
         setMilestone(player.streak);
-      if (player.choice === null) {
-        // All early reveals require every remaining player to have answered.
-        // A missing choice therefore identifies this player's timed-out round.
-        if (!interrupted && !document.hidden)
-          revealCallback.current?.(false, player.streak, true);
-      } else {
-        revealCallback.current?.(
-          player.choice === nextRoom.round?.author,
-          player.streak,
-        );
-      }
+      revealCallback.current?.(
+        player.choice === nextRoom.round?.author,
+        player.streak,
+      );
     }
   }, []);
 
@@ -519,7 +490,6 @@ export default function PartyGame({
       onRoom: acceptRoom,
       parseRoom,
       onProblem: (problem) => {
-        revealInterrupted.current = true;
         if (
           problem instanceof RoomError &&
           [401, 403, 404, 410].includes(problem.status)

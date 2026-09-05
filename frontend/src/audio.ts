@@ -2,7 +2,6 @@ type Tone = {
   frequency: number;
   offset: number;
   duration: number;
-  attack?: number;
   type?: OscillatorType;
   volume?: number;
   endFrequency?: number;
@@ -152,11 +151,10 @@ export function stopAudio(): void {
   stopVoices();
 }
 
-function play(tones: readonly Tone[], immediateOnly = false): void {
+function play(tones: readonly Tone[]): void {
   try {
-    const audio = immediateOnly ? context : getContext();
+    const audio = getContext();
     if (!audio) return;
-    if (immediateOnly && (audio.state !== "running" || document.hidden)) return;
     const request = ++playbackRequest;
     const start = () => {
       // Never replay a queue of old reveals after the browser allows audio.
@@ -182,7 +180,7 @@ function play(tones: readonly Tone[], immediateOnly = false): void {
           gain.gain.setValueAtTime(0, begins);
           gain.gain.linearRampToValueAtTime(
             tone.volume ?? 0.065,
-            begins + (tone.attack ?? 0.02),
+            begins + 0.02,
           );
           gain.gain.exponentialRampToValueAtTime(0.001, ends);
           oscillator.connect(gain);
@@ -228,31 +226,6 @@ export function playCountdownTick(secondsLeft: number): void {
   } catch {
     stopVoices();
   }
-}
-
-/** A single immediate end-of-clock cue; callers deduplicate it per round. */
-export function playTimeUpSound(): void {
-  // One original bell: a clear fundamental with softer inharmonic overtones.
-  play(
-    [
-      {
-        frequency: 1200,
-        offset: 0,
-        duration: 0.68,
-        attack: 0.003,
-        volume: 0.32,
-      },
-      { frequency: 3236, offset: 0, duration: 0.4, attack: 0.002, volume: 0.1 },
-      {
-        frequency: 5013,
-        offset: 0,
-        duration: 0.22,
-        attack: 0.002,
-        volume: 0.045,
-      },
-    ],
-    true,
-  );
 }
 
 export function playAnswerSound(correct: boolean): void {

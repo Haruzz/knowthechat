@@ -14,7 +14,6 @@ import {
   playAnswerSound,
   playCountdownTick,
   playStreakSound,
-  playTimeUpSound,
   prepareAudio,
   stopAudio,
 } from "./audio";
@@ -23,7 +22,6 @@ vi.mock("./audio", () => ({
   playAnswerSound: vi.fn(),
   playCountdownTick: vi.fn(),
   playStreakSound: vi.fn(),
-  playTimeUpSound: vi.fn(),
   stopAudio: vi.fn(),
 }));
 vi.mock("./music", () => ({ useMusic: vi.fn() }));
@@ -93,38 +91,6 @@ function correctChoice() {
 }
 
 describe("Who Said It frontend", () => {
-  it("uses the time-up cue only for unanswered timeouts and preserves ordinary answer and milestone sounds", () => {
-    vi.spyOn(PartyGameModule, "default").mockImplementation(
-      ({ preferences, onRoundRevealed }) => (
-        <>
-          {preferences}
-          <button onClick={() => onRoundRevealed?.(false, 0, true)}>
-            Timed out
-          </button>
-          <button onClick={() => onRoundRevealed?.(false, 0)}>
-            Wrong answer
-          </button>
-          <button onClick={() => onRoundRevealed?.(true, 5)}>
-            Milestone answer
-          </button>
-        </>
-      ),
-    );
-    render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: /play with friends/i }));
-    fireEvent.click(screen.getByRole("button", { name: "Timed out" }));
-    expect(playTimeUpSound).toHaveBeenCalledOnce();
-    expect(playAnswerSound).not.toHaveBeenCalled();
-    expect(playStreakSound).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Wrong answer" }));
-    expect(playAnswerSound).toHaveBeenCalledExactlyOnceWith(false);
-    fireEvent.click(screen.getByRole("button", { name: "Milestone answer" }));
-    expect(playStreakSound).toHaveBeenCalledExactlyOnceWith(5);
-    fireEvent.click(screen.getByRole("button", { name: "Sound effects" }));
-    fireEvent.click(screen.getByRole("button", { name: "Timed out" }));
-    expect(playTimeUpSound).toHaveBeenCalledOnce();
-  });
-
   it("gates multiplayer countdown ticks with sound effects independently of music", () => {
     vi.spyOn(PartyGameModule, "default").mockImplementation(
       ({ preferences, onCountdownTick }) => (

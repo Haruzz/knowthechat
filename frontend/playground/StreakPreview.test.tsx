@@ -11,7 +11,6 @@ import {
   playAnswerSound,
   playCountdownTick,
   playStreakSound,
-  playTimeUpSound,
   prepareAudio,
   stopAudio,
 } from "../src/audio";
@@ -25,7 +24,6 @@ vi.mock("../src/audio", () => ({
   playAnswerSound: vi.fn(),
   playCountdownTick: vi.fn(),
   playStreakSound: vi.fn(),
-  playTimeUpSound: vi.fn(),
   stopAudio: vi.fn(),
 }));
 afterEach(() => {
@@ -149,7 +147,6 @@ describe("local streak playground", () => {
         [1],
       ]);
       expect(music.duck).not.toHaveBeenCalled();
-      expect(playTimeUpSound).toHaveBeenCalledOnce();
       expect(useMusic).toHaveBeenLastCalledWith({
         enabled: false,
         volume: 0.35,
@@ -160,7 +157,6 @@ describe("local streak playground", () => {
         await vi.advanceTimersByTimeAsync(2_000);
       });
       expect(playCountdownTick).toHaveBeenCalledTimes(5);
-      expect(playTimeUpSound).toHaveBeenCalledOnce();
     },
   );
 
@@ -200,29 +196,6 @@ describe("local streak playground", () => {
       await vi.advanceTimersByTimeAsync(3_000);
     });
     expect(playCountdownTick).toHaveBeenCalledTimes(2);
-    expect(playTimeUpSound).not.toHaveBeenCalled();
-  });
-
-  it("keeps the time-up cue muted at zero and does not replay it when SFX returns", async () => {
-    vi.useFakeTimers();
-    render(<StreakPreview />);
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Final seconds" }));
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Sound effects" }));
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_000);
-    });
-    expect(screen.getByLabelText("Countdown seconds").textContent).toBe("0");
-    fireEvent.click(screen.getByRole("button", { name: "Sound effects" }));
-    expect(playTimeUpSound).not.toHaveBeenCalled();
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Final seconds" }));
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5_500);
-    });
-    expect(playTimeUpSound).toHaveBeenCalledOnce();
   });
 
   it("starts music on and auditions lobby, gameplay and final seconds locally", async () => {
