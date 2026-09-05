@@ -91,6 +91,27 @@ export default function PrivacyPage() {
         </section>
 
         <section>
+          <h2>Multiplayer admission controls</h2>
+          <p>
+            To limit repeated room creation, the application derives a SHA-256
+            hash from the requesting network&apos;s IP address. This is a
+            pseudonymous identifier, not anonymous data. Admission storage keeps
+            the hash and request time for a 60-second creation window and
+            schedules their deletion when that window ends. It does not store
+            the unhashed IP address.
+          </p>
+          <p>
+            Separate admission records contain reservation identifiers and
+            timestamps for room preparations and new matches, including
+            rematches. These records are scheduled for deletion after 24 hours.
+            Open-room reservations expire with the room or are released when it
+            closes; abandoned preparations expire after two minutes. Cleanup
+            runs on requests and scheduled alarms. Cloudflare platform backup
+            and recovery retention may outlast application deletion.
+          </p>
+        </section>
+
+        <section>
           <h2>Hosting and operational logs</h2>
           <p>
             Cloudflare hosts the site and processes ordinary request data such

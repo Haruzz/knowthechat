@@ -3196,7 +3196,12 @@ class WorkflowInstance(WorkflowInstance_iface, _JsObject): # type:ignore[misc, u
 
 class __BaseEnv_Env_iface(Protocol): # type:ignore[misc, unused-ignore]
     ASSETS: Fetcher[None, Never] = ... # type:ignore[assignment,unused-ignore]
+    ROOM_MAX_OPEN: Literal["10"] = ... # type:ignore[assignment,unused-ignore]
+    ROOM_PREPARATIONS_PER_DAY: Literal["100"] = ... # type:ignore[assignment,unused-ignore]
+    ROOM_MATCHES_PER_DAY: Literal["100"] = ... # type:ignore[assignment,unused-ignore]
+    ROOM_CREATIONS_PER_MINUTE: Literal["3"] = ... # type:ignore[assignment,unused-ignore]
     GAME_ROOMS: DurableObjectNamespace[None] = ... # type:ignore[assignment,unused-ignore]
+    ROOM_ADMISSION: DurableObjectNamespace[None] = ... # type:ignore[assignment,unused-ignore]
 
 class CacheContext_iface(Protocol): # type:ignore[misc, unused-ignore]
     @overload

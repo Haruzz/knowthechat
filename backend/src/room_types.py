@@ -96,6 +96,7 @@ class SuccessEnvelope(TypedDict):
 class ErrorEnvelope(TypedDict):
     error: str
     status: int
+    retryAfter: NotRequired[int]
 
 
 def is_room_session(result: RoomResult) -> TypeGuard[RoomSession]:

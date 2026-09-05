@@ -17,9 +17,10 @@ MAX_PLAYERS = 8
 
 
 class RoomError(Exception):
-    def __init__(self, message: str, status: int = 400) -> None:
+    def __init__(self, message: str, status: int = 400, retry_after: int | None = None) -> None:
         super().__init__(message)
         self.status = status
+        self.retry_after = retry_after
 
 
 def token_hash(token: str) -> str:
@@ -64,6 +65,8 @@ class Room:
     round_index: int = -1
     deadline: int | None = None
     revision: int = 0
+    admission_id: str = ""
+    match_number: int = 0
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), separators=(",", ":"))
@@ -161,6 +164,7 @@ class Room:
         if self.phase != "finished":
             raise RoomError("Finish this match before a rematch.", 409)
         self.rounds = rounds
+        self.match_number += 1
         self.phase = "waiting"
         self.round_index = -1
         self.deadline = None

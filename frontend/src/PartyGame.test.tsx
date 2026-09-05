@@ -53,10 +53,13 @@ const activeRoom = () => ({
   },
 });
 
-function response(data: unknown, status = 200) {
+function response(data: unknown, status = 200, retryAfter?: string) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(retryAfter ? { "Retry-After": retryAfter } : {}),
+    },
   });
 }
 
@@ -83,6 +86,469 @@ afterEach(() => {
 });
 
 describe("private party game", () => {
+  it("waits past the archive deadline to receive the server's preparation timeout and retry delay", async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_input, init) =>
+        new Promise<Response>((resolve, reject) => {
+          signal = init?.signal ?? undefined;
+          const timer = window.setTimeout(() => {
+            resolve(
+              response(
+                {
+                  error: "Lobby preparation took too long. Please try again.",
+                  retryAfter: 15,
+                },
+                503,
+              ),
+            );
+          }, 95_000);
+          signal?.addEventListener(
+            "abort",
+            () => {
+              window.clearTimeout(timer);
+              reject(new DOMException("Aborted", "AbortError"));
+            },
+            { once: true },
+          );
+        }),
+    );
+    render(<PartyGame onBack={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Your display name"), {
+      target: { value: "Harun" },
+    });
+    fireEvent.change(screen.getByLabelText("Twitch channel"), {
+      target: { value: "example" },
+    });
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Create private lobby →" }),
+      );
+      await vi.advanceTimersByTimeAsync(90_000);
+    });
+    expect(signal?.aborted).toBe(false);
+    expect(
+      screen.getByRole("button", { name: "Building your lobby…" }),
+    ).toBeTruthy();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Lobby preparation took too long. Please try again.",
+    );
+    expect(screen.getByText("Try again in 15 seconds.")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Create private lobby →" }),
+    ).toHaveProperty("disabled", true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears a denied rematch cooldown after the server accepts another rematch", async () => {
+    vi.useFakeTimers();
+    remember();
+    let room = { ...waitingRoom(), phase: "finished" };
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) =>
+        String(input).endsWith("/rematch")
+          ? response(
+              { error: "New games are paused for now.", retryAfter: 86_400 },
+              429,
+            )
+          : response(room),
+      );
+    render(<PartyGame onBack={vi.fn()} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Play a rematch →" }));
+    });
+    expect(
+      screen.getByRole("button", { name: "Play a rematch →" }),
+    ).toHaveProperty("disabled", true);
+    room = waitingRoom();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(
+      screen.getByRole("button", { name: "Everyone in? Start the game →" }),
+    ).toHaveProperty("disabled", false);
+    room = { ...waitingRoom(), phase: "finished" };
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_500);
+    });
+    expect(screen.queryByText(/Try again in/)).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Play a rematch →" }),
+    ).toHaveProperty("disabled", false);
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).endsWith("/rematch"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("clears a previous membership's start cooldown when joining another room", async () => {
+    vi.useFakeTimers();
+    remember();
+    let room = waitingRoom();
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        if (String(input) === "/api/rooms/ABC234/start")
+          return response(
+            { error: "New games are paused for now.", retryAfter: 86_400 },
+            429,
+          );
+        if (String(input).endsWith("/leave")) return response({ ok: true });
+        if (String(input).endsWith("/join")) {
+          room = { ...waitingRoom(), code: "DEF567" };
+          return response({ token: "new-token", room });
+        }
+        if (String(input) === "/api/rooms/DEF567/start") {
+          room = { ...activeRoom(), code: "DEF567" };
+        }
+        return response(room);
+      });
+    render(<PartyGame onBack={vi.fn()} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Everyone in? Start the game →" }),
+      );
+    });
+    expect(
+      screen.getByRole("button", { name: "Everyone in? Start the game →" }),
+    ).toHaveProperty("disabled", true);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Leave lobby" }));
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Join a lobby" }));
+    fireEvent.change(screen.getByLabelText("Your display name"), {
+      target: { value: "Harun" },
+    });
+    fireEvent.change(screen.getByLabelText("Room code"), {
+      target: { value: "DEF567" },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Join the crew →" }));
+    });
+    expect(screen.queryByText(/Try again in/)).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Everyone in? Start the game →" }),
+    ).toHaveProperty("disabled", false);
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Everyone in? Start the game →" }),
+      );
+    });
+    expect(screen.getByRole("region", { name: "Round 1 clue" })).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.filter(
+        ([input]) => String(input) === "/api/rooms/DEF567/start",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it.each([
+    [undefined, undefined],
+    [0, "0"],
+    [-1, "-1"],
+    ["60", "tomorrow"],
+    [86_401, "86401"],
+    [null, "Infinity"],
+    [{ seconds: 60 }, "1e2"],
+  ])(
+    "ignores invalid retry data %j / %j without trapping the host",
+    async (retryAfter, header) => {
+      const fetchMock = vi
+        .spyOn(globalThis, "fetch")
+        .mockImplementation(async () =>
+          response(
+            { error: "Please try again shortly.", retryAfter },
+            429,
+            header,
+          ),
+        );
+      render(<PartyGame onBack={vi.fn()} />);
+      fireEvent.change(screen.getByLabelText("Your display name"), {
+        target: { value: "Harun" },
+      });
+      fireEvent.change(screen.getByLabelText("Twitch channel"), {
+        target: { value: "example" },
+      });
+      await act(async () => {
+        fireEvent.click(
+          screen.getByRole("button", { name: "Create private lobby →" }),
+        );
+      });
+      expect(screen.getByRole("alert").textContent).toBe(
+        "Please try again shortly.",
+      );
+      expect(screen.queryByText(/Try again in/)).toBeNull();
+      const create = screen.getByRole("button", {
+        name: "Create private lobby →",
+      });
+      expect(create).toHaveProperty("disabled", false);
+      await act(async () => {
+        fireEvent.click(create);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("keeps final scores and the session after a denied rematch and accepts Retry-After", async () => {
+    vi.useFakeTimers();
+    remember();
+    const room = {
+      ...activeRoom(),
+      phase: "finished",
+      roundNumber: 10,
+      players: [
+        { ...player("host", "Harun"), score: 1_000 },
+        { ...player("friend", "Friend"), score: 2_000 },
+      ],
+    };
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) =>
+        String(input).endsWith("/rematch")
+          ? response({ error: "New games are paused for now." }, 429, "3661")
+          : response(room),
+      );
+    const { unmount } = render(<PartyGame onBack={vi.fn()} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Play a rematch →" }));
+    });
+    expect(screen.getByRole("alert").textContent).toBe(
+      "New games are paused for now.",
+    );
+    expect(screen.getByText("Try again in 1 hour 2 minutes.")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Play a rematch →" }),
+    ).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Leave lobby" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+    expect(
+      screen.getByRole("heading", { name: "Friend knows the chat!" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("region", { name: "Scoreboard" }).textContent,
+    ).toContain((2_000).toLocaleString());
+    expect(sessionStorage.getItem(SESSION_KEY)).not.toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).endsWith("/rematch"),
+      ),
+    ).toHaveLength(1);
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("disables a denied start without blocking later live gameplay", async () => {
+    vi.useFakeTimers();
+    remember();
+    let room = waitingRoom();
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        if (String(input).endsWith("/start"))
+          return response(
+            { error: "New games are paused for now.", retryAfter: 61 },
+            429,
+          );
+        return response(room);
+      });
+    render(<PartyGame onBack={vi.fn()} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Everyone in? Start the game →" }),
+      );
+    });
+    expect(
+      screen.getByRole("button", { name: "Everyone in? Start the game →" }),
+    ).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Leave lobby" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+    expect(screen.getByRole("region", { name: "Lobby players" })).toBeTruthy();
+    expect(screen.getByText("Try again in 2 minutes.")).toBeTruthy();
+    room = activeRoom();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_500);
+    });
+    expect(screen.queryByText(/Try again in/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Guess Alice" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Guess Alice" }));
+    });
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).endsWith("/start"),
+      ),
+    ).toHaveLength(1);
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).endsWith("/guess"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("allows joining and leaving during a room creation cooldown", async () => {
+    vi.useFakeTimers();
+    const onBack = vi.fn();
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        if (input === "/api/rooms")
+          return response(
+            {
+              error: "Please wait before creating another lobby.",
+              retryAfter: 60,
+            },
+            429,
+          );
+        if (String(input).endsWith("/join"))
+          return response({
+            token: "guest-token",
+            room: { ...waitingRoom(), you: "friend" },
+          });
+        if (String(input).endsWith("/leave")) return response({ ok: true });
+        return response({ ...waitingRoom(), you: "friend" });
+      });
+    render(<PartyGame onBack={onBack} />);
+    fireEvent.change(screen.getByLabelText("Your display name"), {
+      target: { value: "Friend" },
+    });
+    fireEvent.change(screen.getByLabelText("Twitch channel"), {
+      target: { value: "example" },
+    });
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Create private lobby →" }),
+      );
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Join a lobby" }));
+    expect(screen.queryByText(/Try again in/)).toBeNull();
+    fireEvent.change(screen.getByLabelText("Room code"), {
+      target: { value: "ABC234" },
+    });
+    expect(
+      screen.getByRole("button", { name: "Join the crew →" }),
+    ).toHaveProperty("disabled", false);
+    fireEvent.click(screen.getByRole("button", { name: "Create a lobby" }));
+    expect(
+      screen.getByRole("button", { name: "Create private lobby →" }),
+    ).toHaveProperty("disabled", true);
+    expect(screen.getByText("Try again in 1 minute.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Join a lobby" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Join the crew →" }));
+    });
+    expect(screen.getByRole("button", { name: "Leave lobby" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Leave lobby" }));
+    });
+    expect(onBack).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Create a lobby" }));
+    expect(
+      screen.getByRole("button", { name: "Create private lobby →" }),
+    ).toHaveProperty("disabled", true);
+    expect(screen.getByText("Try again in 1 minute.")).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.filter(([input]) => input === "/api/rooms"),
+    ).toHaveLength(1);
+  });
+
+  it("keeps rejected room inputs and waits for an explicit retry after capacity frees", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () =>
+        response(
+          {
+            error: "All rooms are busy. Please try again shortly.",
+            retryAfter: 3,
+          },
+          503,
+        ),
+      );
+    render(<PartyGame onBack={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Your display name"), {
+      target: { value: "Harun" },
+    });
+    fireEvent.change(screen.getByLabelText("Twitch channel"), {
+      target: { value: "example" },
+    });
+    fireEvent.change(screen.getByLabelText("Rounds"), {
+      target: { value: "5" },
+    });
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Create private lobby →" }),
+      );
+    });
+    const create = screen.getByRole("button", {
+      name: "Create private lobby →",
+    });
+    expect(screen.getByRole("alert").textContent).toBe(
+      "All rooms are busy. Please try again shortly.",
+    );
+    expect(screen.getByText("Try again in 3 seconds.")).toBeTruthy();
+    expect(create).toHaveProperty("disabled", true);
+    expect(screen.getByLabelText("Your display name")).toHaveProperty(
+      "value",
+      "Harun",
+    );
+    expect(screen.getByLabelText("Twitch channel")).toHaveProperty(
+      "value",
+      "example",
+    );
+    expect(screen.getByLabelText("Rounds")).toHaveProperty("value", "5");
+    fireEvent.submit(create.closest("form")!);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(screen.getByText("Try again in 1 second.")).toBeTruthy();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(create).toHaveProperty("disabled", false);
+    expect(screen.queryByText(/Try again in/)).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      fireEvent.click(create);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.getAllByText("Try again in 3 seconds.")).toHaveLength(1);
+    expect(screen.getByRole("alert").textContent).toBe(
+      "All rooms are busy. Please try again shortly.",
+    );
+  });
+
   it("shows the lobby roster before play and scores only between rounds", async () => {
     vi.useFakeTimers();
     remember();

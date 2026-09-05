@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import secrets
 import time
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Protocol
 
 from pydantic import TypeAdapter
 
 from api_models import PublicArchiveRequest, PublicArchiveResponse
+from domain.admission import AdmissionGateway
 from domain.rooms import ROOM_LIFETIME_MS, GameRound, Player, Room, RoomError, token_hash
 from room_models import CreateRoomRequest
 from room_types import (
@@ -64,16 +66,54 @@ def shuffled_rematch(rounds: list[GameRound]) -> list[GameRound]:
     ]
 
 
+@dataclass(slots=True)
+class RoomPreparation:
+    admission_id: str
+    initialization_started: bool = False
+
+
 class RoomService:
     def __init__(
-        self, archive: ArchiveService, gateway: RoomGateway, clock: Callable[[], int] = now_ms
+        self,
+        archive: ArchiveService,
+        gateway: RoomGateway,
+        clock: Callable[[], int] = now_ms,
+        *,
+        admission: AdmissionGateway,
     ) -> None:
         self.archive = archive
         self.gateway = gateway
         self.clock = clock
+        self.admission = admission
 
-    async def create(self, request: CreateRoomRequest) -> RoomSession:
-        archive = await self.archive.execute(request.archive_request())
+    async def create(self, request: CreateRoomRequest, creator_key: str) -> RoomSession:
+        reservation = await self.admission.reserve(creator_key)
+        preparation = RoomPreparation(reservation.id)
+        try:
+            # Stay inside the admission controller's 120s preparation lease.
+            async with asyncio.timeout(90):
+                archive = await self.archive.execute(request.archive_request())
+            return await self._initialize(request, archive, preparation)
+        except TimeoutError:
+            raise RoomError(
+                "Chat preparation took too long. Please try again shortly.", 503, 15
+            ) from None
+        finally:
+            # An interrupted initialize may already have committed a live room.
+            # Its lease must survive until room cleanup or expiry to avoid overbooking.
+            if not preparation.initialization_started:
+                try:
+                    await self.admission.release(reservation.id)
+                except Exception:
+                    # The short preparation lease also expires after a crash/outage.
+                    pass
+
+    async def _initialize(
+        self,
+        request: CreateRoomRequest,
+        archive: PublicArchiveResponse,
+        preparation: RoomPreparation,
+    ) -> RoomSession:
         names = list(dict.fromkeys(chatter.name for chatter in archive.chatters))
         quotes = [quote for quote in archive.quotes if quote.author in names]
         if len(names) < 3 or len(quotes) < request.round_count:
@@ -116,14 +156,17 @@ class RoomService:
                 round_seconds=request.round_seconds,
                 expires_at=now + ROOM_LIFETIME_MS,
                 players=[player],
+                admission_id=preparation.admission_id,
             )
             state = room.to_json()
             if len(state.encode()) > MAX_ROOM_STATE_BYTES:
                 raise RoomError("This chat is too large for a lobby. Try fewer rounds.", 422)
+            preparation.initialization_started = True
             try:
                 await self.gateway.initialize(code, state)
             except RoomError as error:
                 if error.status == 409:
+                    preparation.initialization_started = False
                     continue
                 raise
             return {"token": token, "room": room.snapshot(player, now)}
@@ -132,7 +175,10 @@ class RoomService:
 
 def result_json(result: RoomResult | None = None, error: RoomError | None = None) -> str:
     if error is not None:
-        return json.dumps({"error": str(error), "status": error.status})
+        envelope: ErrorEnvelope = {"error": str(error), "status": error.status}
+        if error.retry_after is not None:
+            envelope["retryAfter"] = error.retry_after
+        return json.dumps(envelope)
     return json.dumps({"result": result or {}}, separators=(",", ":"))
 
 
@@ -144,5 +190,5 @@ def decode_result(value: str) -> RoomResult:
     # than letting json.loads' Any escape into every caller.
     envelope = RESULT_ADAPTER.validate_json(value)
     if "error" in envelope:
-        raise RoomError(envelope["error"], envelope["status"])
+        raise RoomError(envelope["error"], envelope["status"], envelope.get("retryAfter"))
     return envelope["result"]

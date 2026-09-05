@@ -6,6 +6,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from api_models import ChatterResponse, PublicArchiveRequest, PublicArchiveResponse, QuoteResponse
+from domain.admission import PENDING_LEASE_MS, Reservation
 from domain.rooms import MAX_PLAYERS, PLAYER_IDLE_MS, ROOM_LIFETIME_MS, GameRound, Room, RoomError
 from fastapi_app import MAX_REQUEST_BYTES, BoundedRequestBodyMiddleware, create_app
 from room_models import CreateRoomRequest
@@ -32,7 +33,16 @@ def make_room(count: int = 5) -> tuple[Room, str, str]:
         for index in range(count)
     ]
     return (
-        Room("ABC234", "haruzz", host.id, rounds, 20, NOW + ROOM_LIFETIME_MS, [host, guest]),
+        Room(
+            "ABC234",
+            "haruzz",
+            host.id,
+            rounds,
+            20,
+            NOW + ROOM_LIFETIME_MS,
+            [host, guest],
+            admission_id="a" * 32,
+        ),
         host_token,
         guest_token,
     )
@@ -215,6 +225,43 @@ class FakeArchive:
         )
 
 
+class FakeAdmission:
+    """A protocol fake; strict quotas themselves use real SQLite in admission tests."""
+
+    def __init__(self) -> None:
+        self.creator_keys: list[str] = []
+        self.reservations: list[Reservation] = []
+        self.activations: list[tuple[str, int]] = []
+        self.releases: list[str] = []
+        self.match_calls: list[tuple[str, int]] = []
+        self.matches: set[tuple[str, int]] = set()
+        self.failure: RoomError | None = None
+
+    def _check(self) -> None:
+        if self.failure is not None:
+            raise self.failure
+
+    async def reserve(self, creator_key: str) -> Reservation:
+        self._check()
+        self.creator_keys.append(creator_key)
+        reservation = Reservation(f"{len(self.reservations) + 1:032x}", NOW + PENDING_LEASE_MS)
+        self.reservations.append(reservation)
+        return reservation
+
+    async def activate(self, lease_id: str, expires_at: int) -> None:
+        self._check()
+        self.activations.append((lease_id, expires_at))
+
+    async def release(self, lease_id: str) -> None:
+        self._check()
+        self.releases.append(lease_id)
+
+    async def admit_match(self, lease_id: str, match_number: int) -> None:
+        self._check()
+        self.match_calls.append((lease_id, match_number))
+        self.matches.add((lease_id, match_number))
+
+
 class FakeGateway:
     def __init__(self) -> None:
         self.states: dict[str, str] = {}
@@ -241,9 +288,10 @@ class FakeGateway:
 @pytest.mark.asyncio
 async def test_create_uses_archive_service_and_bounds_server_generated_deck() -> None:
     archive, gateway = FakeArchive(), FakeGateway()
-    service = RoomService(archive, gateway, lambda: NOW)
+    service = RoomService(archive, gateway, lambda: NOW, admission=FakeAdmission())
     result = await service.create(
-        CreateRoomRequest.model_validate({"channel": "haruzz", "name": "Host", "roundCount": 5})
+        CreateRoomRequest.model_validate({"channel": "haruzz", "name": "Host", "roundCount": 5}),
+        "creator",
     )
     assert archive.calls == 1
     room = Room.from_json(gateway.states[result["room"]["code"]])
@@ -253,15 +301,18 @@ async def test_create_uses_archive_service_and_bounds_server_generated_deck() ->
     assert result["room"]["round"] is None
     assert room.expires_at == NOW + ROOM_LIFETIME_MS
     with pytest.raises(RoomError, match="Not enough chat"):
-        await RoomService(FakeArchive(4), gateway).create(
-            CreateRoomRequest.model_validate({"channel": "haruzz", "name": "Host", "roundCount": 5})
+        await RoomService(FakeArchive(4), gateway, admission=FakeAdmission()).create(
+            CreateRoomRequest.model_validate(
+                {"channel": "haruzz", "name": "Host", "roundCount": 5}
+            ),
+            "creator",
         )
 
 
 @pytest.mark.asyncio
 async def test_http_lifecycle_bearer_validation_and_no_store() -> None:
     archive, gateway = FakeArchive(), FakeGateway()
-    app = BoundedRequestBodyMiddleware(create_app(archive, gateway))
+    app = BoundedRequestBodyMiddleware(create_app(archive, gateway, FakeAdmission()))
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://testserver"
     ) as client:
@@ -301,7 +352,7 @@ async def test_http_lifecycle_bearer_validation_and_no_store() -> None:
 @pytest.mark.asyncio
 async def test_http_rejects_decks_bad_settings_cross_origin_and_large_bodies() -> None:
     archive, gateway = FakeArchive(), FakeGateway()
-    app = BoundedRequestBodyMiddleware(create_app(archive, gateway))
+    app = BoundedRequestBodyMiddleware(create_app(archive, gateway, FakeAdmission()))
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://testserver"
     ) as client:

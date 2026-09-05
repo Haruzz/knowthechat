@@ -12,9 +12,9 @@ from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
-from test_rooms import NOW, make_room
+from test_rooms import NOW, FakeAdmission, make_room
 
-from domain.rooms import ROOM_LIFETIME_MS, Room
+from domain.rooms import ROOM_LIFETIME_MS, Room, RoomError
 
 
 class SqlCursor:
@@ -49,6 +49,30 @@ class Storage:
 
     async def deleteAlarm(self) -> None:
         raise AssertionError("Cleanup must delete data and alarms in one atomic deleteAll call")
+
+
+class AdmissionRpc:
+    def __init__(self, admission: FakeAdmission) -> None:
+        self.admission = admission
+
+    async def _result(self, operation: Any) -> str:
+        try:
+            await operation
+            return '{"result":null}'
+        except RoomError as error:
+            result: dict[str, str | int] = {"error": str(error), "status": error.status}
+            if error.retry_after is not None:
+                result["retryAfter"] = error.retry_after
+            return json.dumps(result)
+
+    async def activate(self, lease_id: str, expires_at: int) -> str:
+        return await self._result(self.admission.activate(lease_id, expires_at))
+
+    async def release(self, lease_id: str) -> str:
+        return await self._result(self.admission.release(lease_id))
+
+    async def admit_match(self, lease_id: str, match_number: int) -> str:
+        return await self._result(self.admission.admit_match(lease_id, match_number))
 
 
 class Socket:
@@ -160,7 +184,12 @@ def runtime(monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Storage]:
     storage = Storage()
     module.context = Context(storage)
     module.pairs = pairs
-    module.instance = module.GameRoom(module.context, SimpleNamespace())
+    module.admission = FakeAdmission()
+    admission_rpc = AdmissionRpc(module.admission)
+    module.env = SimpleNamespace(
+        ROOM_ADMISSION=SimpleNamespace(getByName=lambda _name: admission_rpc)
+    )
+    module.instance = module.GameRoom(module.context, module.env)
     return module, storage
 
 
@@ -211,7 +240,7 @@ async def test_alarm_reveals_once_after_reconstruction_and_reschedules_expiry(
     await module.instance.command("guess", host_token, '{"roundId":"round-0","choice":"chatter_a"}')
     assert storage.alarm_at == NOW + 20_000
     # A fresh instance has no cached authority but retains the same storage.
-    restored = module.GameRoom(module.context, SimpleNamespace())
+    restored = module.GameRoom(module.context, module.env)
     monkeypatch.setattr(module, "now_ms", lambda: NOW + 20_000)
     await restored.alarm()
     state: Room = restored._load()

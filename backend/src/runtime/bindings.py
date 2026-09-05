@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     from workers import Request, Response
 
+    from runtime.admission import AdmissionNamespace
+
 type SqlValue = str | int | float | bytes | None
 
 
@@ -29,6 +31,9 @@ class RoomNamespace(Protocol):
 
 
 class RoomEnvironment(Protocol):
+    @property
+    def ROOM_ADMISSION(self) -> AdmissionNamespace: ...
+
     @property
     def GAME_ROOMS(self) -> RoomNamespace: ...
 

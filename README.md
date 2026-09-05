@@ -13,7 +13,9 @@ This is an unofficial community project. It is not affiliated with or endorsed b
 - **Solo:** choose a channel, archive period, chatter pool and game length. Five correct guesses ignite the screen edges; higher streaks unlock new celebrations. Track accuracy and your best streak, and toggle sound or effects. Reduced-motion preferences are respected.
 - **Play with friends:** create a private room for 2–8 players and share its invite code or link. Room codes start hidden; copy the code or invite link without displaying it, or use Show/Hide to reveal it on stream. Choose 5, 10 or 20 rounds and a 15, 20 or 30 second timer. Everyone gets the same three choices. Correct answers earn 1,000 points plus up to 500 for speed; the host advances after each shared reveal. Rematch without rebuilding the archive.
 
-Rooms expire after two hours. Reloading the same browser tab restores your player session. Room updates arrive over hibernating WebSockets, with automatic reconnection and an HTTP fallback when needed; the server owns deadlines, scores and answer reveals. This mode is intended for casual matches with friends using public source material.
+Rooms expire after two hours. The default admission policy allows ten open rooms across the site, including waiting lobbies and final standings, with separate rolling limits on room preparation and new matches. A limit pauses the affected action and shows when to try again; existing matches continue. Self-hosters can change the [admission settings](docs/cloudflare.md#multiplayer-admission-limits).
+
+Reloading the same browser tab restores your player session. Room updates arrive over hibernating WebSockets, with automatic reconnection and an HTTP fallback when needed; the server owns deadlines, scores and answer reveals. This mode is intended for casual matches with friends using public source material.
 
 ## Prerequisites
 
@@ -108,7 +110,8 @@ Browser
   ├─ GET /*                    → Workers Static Assets → React + Vite
   ├─ POST /api/public-archive → Python Worker → public archives + emotes
   └─ /api/rooms/*            → Python Worker → one SQLite Durable Object per room
-       └─ /:code/events     → hibernating WebSocket updates
+       ├─ creation / new match → shared admission Durable Object
+       └─ /:code/events        → hibernating WebSocket updates
 ```
 
 The frontend and API share one Cloudflare Worker and one origin. See the [architecture guide](docs/architecture.md) and [Cloudflare operations guide](docs/cloudflare.md) for details.

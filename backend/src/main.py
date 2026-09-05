@@ -7,6 +7,7 @@ from workers import Request, Response, WorkerEntrypoint, asgi
 from fastapi_app import BoundedRequestBodyMiddleware, create_app
 from providers.archives import RecentMessagesProvider, ZonianHistoricalProvider
 from providers.emotes import BetterTtvProvider, FrankerFaceZProvider, SevenTvProvider
+from runtime.admission import RoomAdmission as RoomAdmission
 from runtime.bindings import RoomEnvironment
 from runtime.http import CloudflareJsonHttpClient
 from runtime.room_events import forward_room_events

@@ -11,6 +11,7 @@ from starlette.requests import Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from api_models import ErrorResponse, PublicArchiveRequest, PublicArchiveResponse
+from domain.admission import AdmissionGateway
 from providers.protocols import ArchiveProviderUnavailableError
 from room_routes import add_room_routes
 from services.public_archive import NoPublicArchiveError
@@ -88,7 +89,11 @@ class BoundedRequestBodyMiddleware:
         await self.app(scope, replay_receive, send)
 
 
-def create_app(service: ArchiveService, room_gateway: RoomGateway | None = None) -> FastAPI:
+def create_app(
+    service: ArchiveService,
+    room_gateway: RoomGateway | None = None,
+    room_admission: AdmissionGateway | None = None,
+) -> FastAPI:
     app = FastAPI(
         title="Know The Chat API",
         docs_url=None,
@@ -139,5 +144,5 @@ def create_app(service: ArchiveService, room_gateway: RoomGateway | None = None)
         response.headers.update(NO_STORE)
         return await service.execute(payload)
 
-    add_room_routes(app, service, room_gateway)
+    add_room_routes(app, service, room_gateway, room_admission)
     return app

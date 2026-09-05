@@ -2,6 +2,7 @@ export class RoomError extends Error {
   constructor(
     message: string,
     readonly status = 0,
+    readonly retryAfter?: number,
   ) {
     super(message);
   }

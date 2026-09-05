@@ -11,6 +11,36 @@ afterEach(() => {
 });
 
 describe("site routing", () => {
+  it("discloses pseudonymous network rate limits separately from daily admission records", () => {
+    window.history.replaceState({}, "", "/privacy");
+    render(<Site />);
+
+    expect(
+      screen.getByRole("heading", { name: "Multiplayer admission controls" }),
+    ).toBeTruthy();
+    const network = screen.getByText(/To limit repeated room creation/);
+    expect(network.textContent).toContain("SHA-256");
+    expect(network.textContent).toContain(
+      "pseudonymous identifier, not anonymous data",
+    );
+    expect(network.textContent).toContain("60-second creation window");
+    expect(network.textContent).toContain(
+      "does not store the unhashed IP address",
+    );
+    const admissions = screen.getByText(/Separate admission records contain/);
+    expect(admissions.textContent).toContain(
+      "reservation identifiers and timestamps",
+    );
+    expect(admissions.textContent).toContain("including rematches");
+    expect(admissions.textContent).toContain("deletion after 24 hours");
+    expect(admissions.textContent).toContain(
+      "abandoned preparations expire after two minutes",
+    );
+    expect(admissions.textContent).toContain(
+      "retention may outlast application deletion",
+    );
+  });
+
   it("recognizes privacy paths", () => {
     expect(isPrivacyPath("/privacy")).toBe(true);
     expect(isPrivacyPath("/privacy/")).toBe(true);

@@ -21,6 +21,8 @@ import "./party.css";
 
 type Session = { code: string; token: string };
 type Action = "start" | "guess" | "next" | "rematch" | "leave";
+type LimitedAction = "create" | "start" | "rematch";
+type Cooldowns = Partial<Record<LimitedAction, number>>;
 
 const SESSION_KEY = "knowthechat-party-session";
 const CURRENT_YEAR = new Date().getUTCFullYear();
@@ -64,6 +66,40 @@ function storeSession(session: Session | null) {
   }
 }
 
+function limitedAction(action: string): action is LimitedAction {
+  return action === "create" || action === "start" || action === "rematch";
+}
+
+function retryAfter(response: Response, data: unknown): number | undefined {
+  if (response.status !== 429 && response.status !== 503) return;
+  const valid = (value: unknown): value is number =>
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value > 0 &&
+    value <= 86_400;
+  if (
+    data &&
+    typeof data === "object" &&
+    "retryAfter" in data &&
+    valid(data.retryAfter)
+  )
+    return Math.ceil(data.retryAfter);
+  const header = response.headers.get("Retry-After");
+  if (header && /^[1-9]\d{0,5}$/.test(header) && valid(Number(header)))
+    return Number(header);
+}
+
+function retryDuration(seconds: number): string {
+  const unit = (count: number, name: string) =>
+    `${count} ${name}${count === 1 ? "" : "s"}`;
+  if (seconds < 60) return unit(seconds, "second");
+  const minutes = Math.ceil(seconds / 60);
+  if (minutes < 60) return unit(minutes, "minute");
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return `${unit(hours, "hour")}${remainder ? ` ${unit(remainder, "minute")}` : ""}`;
+}
+
 async function request<T>(
   path: string,
   controller: AbortController,
@@ -73,7 +109,7 @@ async function request<T>(
 ): Promise<T> {
   const timeout = window.setTimeout(
     () => controller.abort("timeout"),
-    path === "/api/rooms" ? 90_000 : 12_000,
+    path === "/api/rooms" ? 110_000 : 12_000,
   );
   try {
     const response = await fetch(path, {
@@ -94,7 +130,7 @@ async function request<T>(
         typeof data.error === "string"
           ? data.error
           : "The lobby could not be reached. Please try again.";
-      throw new RoomError(message, response.status);
+      throw new RoomError(message, response.status, retryAfter(response, data));
     }
     if (!data)
       throw new RoomError(
@@ -248,6 +284,7 @@ export default function PartyGame({
   const [roundSeconds, setRoundSeconds] = useState("20");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [cooldowns, setCooldowns] = useState<Cooldowns>({});
   const [connectionError, setConnectionError] = useState("");
   const [copyStatus, setCopyStatus] = useState("");
   const [showCode, setShowCode] = useState(false);
@@ -267,6 +304,54 @@ export default function PartyGame({
   } | null>(null);
   const phase = room?.phase;
   const isHost = Boolean(room && room.hostId === room.you);
+  const retryAction = !room
+    ? tab
+    : phase === "waiting"
+      ? "start"
+      : phase === "finished"
+        ? "rematch"
+        : null;
+  const retrySeconds =
+    retryAction && limitedAction(retryAction)
+      ? Math.max(0, Math.ceil(((cooldowns[retryAction] ?? 0) - now) / 1_000))
+      : 0;
+  const retryNotice = retrySeconds > 0 && (
+    <p className="party-help" role="status">
+      Try again in {retryDuration(retrySeconds)}.
+    </p>
+  );
+
+  const reportActionError = useCallback((problem: unknown, action: string) => {
+    setError(errorMessage(problem));
+    if (
+      limitedAction(action) &&
+      problem instanceof RoomError &&
+      problem.retryAfter !== undefined
+    ) {
+      const receivedAt = Date.now();
+      const retryUntil = receivedAt + problem.retryAfter * 1_000;
+      setNow(receivedAt);
+      setCooldowns((current) => ({
+        ...current,
+        [action]: retryUntil,
+      }));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (Object.keys(cooldowns).length === 0) return;
+    const timer = window.setInterval(() => {
+      const currentTime = Date.now();
+      setNow(currentTime);
+      if (Object.values(cooldowns).some((until) => until <= currentTime))
+        setCooldowns((current) =>
+          Object.fromEntries(
+            Object.entries(current).filter(([, until]) => until > currentTime),
+          ),
+        );
+    }, 1_000);
+    return () => window.clearInterval(timer);
+  }, [cooldowns]);
 
   useEffect(() => {
     revealCallback.current = onRoundRevealed;
@@ -298,7 +383,19 @@ export default function PartyGame({
       nextRoom.revision < latest.revision
     )
       return;
-    if (latest?.code !== nextRoom.code || latest.you !== nextRoom.you) {
+    const membershipChanged =
+      latest?.code !== nextRoom.code || latest.you !== nextRoom.you;
+    if (
+      membershipChanged ||
+      (latest?.phase === "finished" && nextRoom.phase === "waiting")
+    ) {
+      setCooldowns((current) => {
+        if (current.start === undefined && current.rematch === undefined)
+          return current;
+        return current.create === undefined ? {} : { create: current.create };
+      });
+    }
+    if (membershipChanged) {
       setShowCode(false);
       setCopyStatus("");
       const url = new URL(window.location.href);
@@ -411,7 +508,11 @@ export default function PartyGame({
 
   async function enter(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (actionPending.current) return;
+    if (
+      actionPending.current ||
+      (tab === "create" && (cooldowns.create ?? 0) > Date.now())
+    )
+      return;
     onInteraction?.();
     actionPending.current = true;
     operation.current?.abort();
@@ -450,7 +551,7 @@ export default function PartyGame({
       acceptRoom(joined.room);
     } catch (problem) {
       if (!controller.signal.aborted || controller.signal.reason === "timeout")
-        setError(errorMessage(problem));
+        reportActionError(problem, tab);
     } finally {
       if (operation.current === controller) operation.current = null;
       actionPending.current = false;
@@ -460,7 +561,12 @@ export default function PartyGame({
 
   const act = useCallback(
     async (action: Action, choice?: string) => {
-      if (!session || actionPending.current) return;
+      if (
+        !session ||
+        actionPending.current ||
+        (limitedAction(action) && (cooldowns[action] ?? 0) > Date.now())
+      )
+        return;
       if (
         action === "guess" &&
         (!room?.round ||
@@ -503,7 +609,7 @@ export default function PartyGame({
             setCode(session.code);
             setTab("join");
           }
-          setError(errorMessage(problem));
+          reportActionError(problem, action);
         }
       } finally {
         if (operation.current === controller) operation.current = null;
@@ -512,7 +618,16 @@ export default function PartyGame({
         setBusy("");
       }
     },
-    [session, room, clockOffset, acceptRoom, onInteraction, finishLeave],
+    [
+      session,
+      room,
+      clockOffset,
+      acceptRoom,
+      onInteraction,
+      finishLeave,
+      cooldowns,
+      reportActionError,
+    ],
   );
 
   useEffect(() => {
@@ -746,6 +861,7 @@ export default function PartyGame({
                   <button
                     className="launch party-submit"
                     disabled={
+                      (tab === "create" && retrySeconds > 0) ||
                       !name.trim() ||
                       (tab === "create"
                         ? channel.trim().length < 3
@@ -774,6 +890,7 @@ export default function PartyGame({
               {error}
             </p>
           )}
+          {retryNotice}
           {preferences}
           <p className="party-help">
             1,000 points for a correct answer + up to 500 for speed.
@@ -830,6 +947,7 @@ export default function PartyGame({
             {error}
           </p>
         )}
+        {retryNotice}
         {phase === "waiting" ? (
           <section className="party-lobby">
             <p className="eyebrow">THE CASE IS READY</p>
@@ -877,7 +995,9 @@ export default function PartyGame({
             {isHost ? (
               <button
                 className="launch party-start"
-                disabled={Boolean(busy) || room.players.length < 2}
+                disabled={
+                  Boolean(busy) || retrySeconds > 0 || room.players.length < 2
+                }
                 onClick={() => void act("start")}
               >
                 {busy === "start"
@@ -1037,7 +1157,10 @@ export default function PartyGame({
                 {isHost ? (
                   <button
                     className="launch"
-                    disabled={Boolean(busy)}
+                    disabled={
+                      Boolean(busy) ||
+                      (phase === "finished" && retrySeconds > 0)
+                    }
                     onClick={() =>
                       void act(phase === "finished" ? "rematch" : "next")
                     }

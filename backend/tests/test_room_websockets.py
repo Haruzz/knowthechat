@@ -174,7 +174,7 @@ async def test_deadline_alarm_pushes_after_reconstruction_without_polling(
     await module.instance.command("start", host_token, "{}")
     await module.instance.command("guess", host_token, '{"roundId":"round-0","choice":"chatter_a"}')
     revision = last_room(host)["revision"]
-    restored = module.GameRoom(module.context, SimpleNamespace())
+    restored = module.GameRoom(module.context, module.env)
     monkeypatch.setattr(module, "now_ms", lambda: NOW + 20_000)
     await restored.alarm()
     assert last_room(host)["phase"] == "reveal"
@@ -197,7 +197,7 @@ async def test_auto_ping_preserves_live_players_across_idle_alarm(
     later = NOW + PLAYER_IDLE_MS + 1000
     host.ping_at = later - 25_000
     guest.ping_at = later - 20_000
-    restored = module.GameRoom(module.context, SimpleNamespace())
+    restored = module.GameRoom(module.context, module.env)
     monkeypatch.setattr(module, "now_ms", lambda: later)
     await restored.alarm()
     assert len(restored._load().players) == 2

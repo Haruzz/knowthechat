@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     )
     from workers import Request, Response
 
+    from domain.admission import AdmissionGateway, Reservation
     from domain.rooms import Room
     from room_types import LeaveResult, Phase, RoomSession, RoomSnapshot
     from runtime.bindings import RoomNamespace, RoomStorage, SqlValue
@@ -59,3 +60,12 @@ if TYPE_CHECKING:
             ),
             object,
         )
+
+    async def admission_editor_contract(gateway: AdmissionGateway) -> None:
+        reservation = await gateway.reserve("0" * 64)
+        assert_type(reservation, Reservation)
+        assert_type(reservation.id, str)
+        assert_type(reservation.expires_at, int)
+        assert_type(await gateway.activate(reservation.id, 0), None)
+        assert_type(await gateway.admit_match(reservation.id, 0), None)
+        assert_type(await gateway.release(reservation.id), None)

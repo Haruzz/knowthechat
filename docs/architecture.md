@@ -12,14 +12,17 @@ Workers Static Assets stores the Vite output separately from Python modules. Req
 
 ## Multiplayer lobbies
 
-One Python `GameRoom` Durable Object coordinates each six-character lobby code through the `GAME_ROOMS` binding. Its SQLite storage contains one bounded JSON snapshot; creating a lobby stores only its selected 5, 10, or 20 rounds, not the downloaded archive. No D1, KV, second Worker, or additional public API origin is required.
+One Python `GameRoom` Durable Object coordinates each six-character lobby code through the `GAME_ROOMS` binding. Its SQLite storage contains one bounded JSON snapshot; creating a lobby stores only its selected 5, 10, or 20 rounds, not the downloaded archive. A shared `RoomAdmission` Durable Object through `ROOM_ADMISSION` coordinates room capacity and new-match limits. No D1, KV, second Worker, or additional public API origin is required.
 
 ```text
 POST /api/rooms
   -> bounded body and Pydantic settings validation
+  -> hash the network key and reserve capacity through ROOM_ADMISSION
   -> PublicArchiveService fetches and selects real chat on the server
   -> server generates a private deck, three choices per round, and opaque round IDs
   -> GAME_ROOMS.getByName(code).initialize(private state)
+       -> activate the reservation with the fixed room expiry
+       -> persist the initial private room state
   -> host bearer token and waiting-room snapshot
 
 POST /api/rooms/:code/join
@@ -38,7 +41,7 @@ GET /api/rooms/:code (fallback); POST /api/rooms/:code/{start,guess,next,rematch
   -> player-specific snapshot with Cache-Control: no-store
 ```
 
-All network and archive I/O finishes before initializing the object. Within a room command, SQLite load, rule execution, and save are synchronous with no intervening `await`, so simultaneous guesses cannot overwrite each other. RPC calls use JSON strings across the Python/JavaScript binding boundary. The object retains no authoritative state in memory and restores correctly after eviction.
+Archive I/O finishes before initializing the room object. Room creation and new matches require admission before they commit. Ordinary gameplay, guesses and heartbeats do not contact the shared admission object. RPC calls use JSON strings across the Python/JavaScript binding boundary. SQLite remains authoritative for room state and the admission ledger, so both recover their decisions after eviction.
 
 Each round lasts 15, 20, or 30 seconds. Clients render the countdown from epoch-millisecond `deadline` and `serverNow`, but only the server clock decides whether a guess is on time. A Durable Object alarm closes the round without needing a connected browser; every command also applies a passed deadline before accepting input. A round reveals early once all current players answer. Correct guesses earn 1,000 points plus up to 500 for speed; incorrect or missing guesses earn zero. Scores and streaks are applied together at reveal, preventing another player's changing score from disclosing the answer. Before reveal, a player sees only their own choice and whether other players have answered; no answer, future deck, raw archive quote IDs, or token hashes enter the public snapshot.
 
@@ -53,6 +56,18 @@ The browser offers `knowthechat.v1` and `session.<token>` as WebSocket subprotoc
 Browser heartbeat messages receive a static `ping`/`pong` auto-response from Cloudflare without waking Python. There are no server timer loops. Socket attachments and auto-response timestamps remain available after hibernation; SQLite remains the game authority. Clients reconnect with bounded backoff and fall back to HTTP state requests when WebSockets are unavailable. A healthy socket stops fallback polling.
 
 The first multiplayer version used polling to simplify its transport; this was an implementation choice, not a Workers plan restriction. Python hibernation support is documented in [Cloudflare's WebSocket guide](https://developers.cloudflare.com/durable-objects/best-practices/websockets/).
+
+## Multiplayer admission
+
+The shared admission object applies four configurable limits: ten open rooms; 100 admitted archive preparations in a rolling 24-hour window; 100 new-match admissions in a rolling 24-hour window; and three admitted preparations per network key in a rolling 60-second window. Waiting rooms and final standings occupy capacity until the room closes or expires. Requests denied before preparation do not consume preparation records. Once admitted, a failed archive preparation still counts toward its rolling limit.
+
+Room creation reserves a slot before fetching any archive. The preparation timeout is 90 seconds; an unfinished reservation expires after two minutes. A completed room keeps its slot until its fixed two-hour expiry or closure, including departure of the last member. Cleanup uses scheduled alarms and expiry checks, so an interrupted preparation does not hold capacity indefinitely.
+
+The first start reserves a match admission. A rematch reserves the next match before clearing the previous results; the following start reuses that admission rather than counting the same match twice. Admission identifiers make repeated checks for the same match idempotent. If a check is unavailable or denied, the new action does not proceed; existing guesses, reveals and connected games continue normally. The browser displays a retry delay when supplied, disables only the rejected action until that delay expires, and never automatically retries a creation or command.
+
+The per-network ledger stores only a SHA-256 network key and admission timestamp, for 60 seconds. This key is pseudonymous, not anonymous; unhashed IP addresses are not persisted in admission storage. Preparation and match records contain reservation identifiers and timestamps for their 24-hour windows. Active reservations retain only the lifecycle data needed to release capacity. Requests and alarms prune expired records.
+
+Rooms created before admission reservations were introduced can finish their current game. Starting a new game or rematch from a legacy room requires creating a fresh lobby.
 
 ## Request lifecycle
 
@@ -90,7 +105,7 @@ Historical and recent messages are never mixed. A confirmed missing channel arch
 - `main.py` forwards lobby event upgrades natively and passes other Cloudflare requests to FastAPI through `asgi.fetch()`; it contains no game, filtering or ranking rules.
 - `room_models.py` and `room_routes.py` validate and route the multiplayer HTTP boundary through an injectable `RoomGateway` protocol.
 - `services/rooms.py` fetches and generates private decks; `services/room_commands.py` dispatches room actions; `domain/rooms.py` owns deterministic game rules and redacted snapshots.
-- `runtime/room_events.py` validates and forwards native event upgrades. `runtime/rooms.py` adapts the Cloudflare binding, SQLite persistence, hibernating sockets and alarms. `main.py` exports the `GameRoom` class for Wrangler.
+- `runtime/room_events.py` validates and forwards native event upgrades. `runtime/rooms.py` adapts the Cloudflare binding, SQLite persistence, hibernating sockets and alarms. `runtime/admission.py` persists shared reservations and rolling counters; `domain/admission.py` defines the policy settings and gateway protocol. `main.py` exports `GameRoom` and `RoomAdmission` for Wrangler.
 
 `Protocol` is used because archive and emote sources are replaceable dependencies and tests need small fakes. There are no ABCs: the implementations share no state or algorithm that would justify runtime inheritance. Constructor injection keeps wiring visible and avoids a DI framework.
 
