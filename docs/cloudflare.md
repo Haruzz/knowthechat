@@ -49,17 +49,19 @@ Set these string variables in `backend/wrangler.jsonc` when hosting your own ins
 | Variable                    | Default | Scope                                                                                      |
 | --------------------------- | ------- | ------------------------------------------------------------------------------------------ |
 | `ROOM_MAX_OPEN`             | `"10"`  | Open rooms and preparations across the site, including waiting lobbies and final standings |
-| `ROOM_PREPARATIONS_PER_DAY` | `"100"` | Admitted archive preparations across the site over the previous 24 hours                   |
+| `ROOM_PREPARATIONS_PER_DAY` | `"100"` | Admitted creation/rematch archive preparations across the site over the previous 24 hours  |
 | `ROOM_MATCHES_PER_DAY`      | `"100"` | New-match admissions across the site over the previous 24 hours, including rematches       |
-| `ROOM_CREATIONS_PER_MINUTE` | `"3"`   | Admitted preparations from one hashed network key over the previous 60 seconds             |
+| `ROOM_CREATIONS_PER_MINUTE` | `"3"`   | Admitted new-room preparations from one hashed network key over the previous 60 seconds    |
 
-Values must be decimal strings from 1 through 10,000; invalid settings fail closed. These are rolling windows, so allowances recover as old admissions expire rather than resetting at midnight. Preparation records remain counted even if an upstream archive fetch fails. A rematch reserves its match admission before returning to the lobby; starting that prepared rematch does not count it twice.
+Values must be decimal strings from 1 through 10,000; invalid settings fail closed. These are rolling windows, so allowances recover as old admissions expire rather than resetting at midnight. Every admitted archive preparation counts, including each rematch attempt and failed upstream fetch. A rematch reserves its next-match admission before fetching fresh chat; retries for that pending match reuse the same admission, and starting the successfully prepared rematch does not count it twice.
 
-The shared ledger checks and reserves capacity before archive fetching. Preparations have a 90-second timeout and a two-minute pending reservation. An activated reservation expires with its two-hour room or releases when the room closes. Existing games keep running when an admission limit is reached. HTTP errors include a readable message and, where available, retry seconds in both `retryAfter` and `Retry-After`; the browser waits for a manual retry. These controls do not change the solo archive endpoint or impose a new limit on joining an existing waiting room.
+The shared ledger checks and reserves capacity before a new room fetches archives. New-room preparations have a 90-second timeout and a two-minute pending reservation. An activated reservation expires with its two-hour room or releases when the room closes. Rematches retain that existing slot and do not consume another per-network room-creation entry. Existing games keep running when an admission limit is reached. HTTP errors include a readable message and, where available, retry seconds in both `retryAfter` and `Retry-After`; the browser waits for a manual retry. These controls do not change the solo archive endpoint or impose a new limit on joining an existing waiting room.
 
 Admission records are cleaned up with requests and alarms. Network hashes remain only for the 60-second creation window; preparation and match records remain for their 24-hour windows. The application does not store raw IP addresses in the admission ledger. People sharing a public IP also share its creation limit. Requests without client-address information, such as local Wrangler requests, share one fixed creation bucket with the same limits.
 
-When introducing the admission binding to an existing deployment, rooms without reservations can finish their current game, but hosts must create a fresh lobby before starting another game or rematch. Preserve both migration entries and class exports during later changes.
+Fresh rematches reuse the channel, original rolling range or calendar year, and chatter pool. Each fetch excludes the room's stored hashes of up to 2,000 recently used quote texts. The old results remain until a complete fresh deck is ready. Insufficient fresh quotes or a fetch failure returns an error without replacing the deck or clearing scores. The host can retry or create a lobby with different settings. Preparation is capped at 90 seconds; create and rematch clients allow 110 seconds to receive the server's response. The bounded history is internal and is deleted with the room.
+
+When introducing the admission binding to an existing deployment, rooms without reservations can finish their current game, but hosts must create a fresh lobby before starting another game or rematch. Rooms without stored original archive settings also need a new lobby before rematching. Preserve both migration entries and class exports during later changes.
 
 ## Caching
 
@@ -123,7 +125,7 @@ small test limits:
 ```bash
 cd backend
 uv run pywrangler dev --port 8788 --persist-to .wrangler/admission-smoke-$(date +%s) \
-  --var ROOM_MAX_OPEN:1 --var ROOM_PREPARATIONS_PER_DAY:2 \
+  --var ROOM_MAX_OPEN:1 --var ROOM_PREPARATIONS_PER_DAY:3 \
   --var ROOM_MATCHES_PER_DAY:2 --var ROOM_CREATIONS_PER_MINUTE:3
 ```
 
@@ -134,8 +136,9 @@ node scripts/smoke-admission.mjs jaxstyle
 ```
 
 The script accepts localhost only and uses real public archives. It checks full
-capacity, initial match and rematch admission, preserved results after a denied
+capacity, initial match and fresh-rematch admission, preserved results after a denied
 rematch, capacity release, and rolling preparation counts after room deletion.
+The three preparation slots cover the initial room, its rematch and a new room.
 Stop this isolated server when finished; normal development uses the configured
 defaults.
 

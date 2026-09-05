@@ -109,7 +109,7 @@ async function request<T>(
 ): Promise<T> {
   const timeout = window.setTimeout(
     () => controller.abort("timeout"),
-    path === "/api/rooms" ? 110_000 : 12_000,
+    path === "/api/rooms" || path.endsWith("/rematch") ? 110_000 : 12_000,
   );
   try {
     const response = await fetch(path, {
@@ -1152,6 +1152,11 @@ export default function PartyGame({
               )
             )}
             {revealed && <Scoreboard room={room} />}
+            {busy === "rematch" && (
+              <p className="party-help" role="status">
+                Finding new clues for the next game. This can take a moment.
+              </p>
+            )}
             {revealed && (
               <div className="party-next">
                 {isHost ? (
@@ -1165,13 +1170,15 @@ export default function PartyGame({
                       void act(phase === "finished" ? "rematch" : "next")
                     }
                   >
-                    {busy
-                      ? "Getting ready…"
-                      : phase === "finished"
-                        ? "Play a rematch →"
-                        : room.roundNumber >= room.totalRounds
-                          ? "See final standings →"
-                          : "Next round →"}
+                    {busy === "rematch"
+                      ? "Fetching fresh chat…"
+                      : busy
+                        ? "Getting ready…"
+                        : phase === "finished"
+                          ? "Play a rematch →"
+                          : room.roundNumber >= room.totalRounds
+                            ? "See final standings →"
+                            : "Next round →"}
                   </button>
                 ) : (
                   <p className="party-waiting" role="status">

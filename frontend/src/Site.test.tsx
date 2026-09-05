@@ -103,6 +103,18 @@ describe("site routing", () => {
     expect(rooms.textContent).toContain(
       "retention may outlast application deletion",
     );
+    const history = screen.getByText(
+      /Rooms also store the original archive settings/,
+    );
+    expect(history.textContent).toContain(
+      "hashes of up to 2,000 recently used quote texts",
+    );
+    expect(history.textContent).toContain(
+      "internal quote history is not sent to players",
+    );
+    expect(history.textContent).toContain(
+      "deleted with the room, within its two-hour lifetime",
+    );
     expect(screen.getByText("Effective September 5, 2026")).toBeTruthy();
   });
 });

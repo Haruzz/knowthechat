@@ -12,7 +12,7 @@ from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
-from test_rooms import NOW, FakeAdmission, make_room
+from test_rooms import NOW, FakeAdmission, FakeArchive, make_room
 
 from domain.rooms import ROOM_LIFETIME_MS, Room, RoomError
 
@@ -73,6 +73,9 @@ class AdmissionRpc:
 
     async def admit_match(self, lease_id: str, match_number: int) -> str:
         return await self._result(self.admission.admit_match(lease_id, match_number))
+
+    async def admit_rematch(self, lease_id: str, attempt_id: str, match_number: int) -> str:
+        return await self._result(self.admission.admit_rematch(lease_id, attempt_id, match_number))
 
 
 class Socket:
@@ -189,6 +192,8 @@ def runtime(monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Storage]:
     module.env = SimpleNamespace(
         ROOM_ADMISSION=SimpleNamespace(getByName=lambda _name: admission_rpc)
     )
+    module.archive = FakeArchive(100)
+    monkeypatch.setattr(module.GameRoom, "_archive", lambda self: module.archive)
     module.instance = module.GameRoom(module.context, module.env)
     return module, storage
 

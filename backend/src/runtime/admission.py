@@ -41,6 +41,10 @@ class AdmissionStub(Protocol):
 
     def admit_match(self, lease_id: str, match_number: int) -> Awaitable[str]: ...
 
+    def admit_rematch(
+        self, lease_id: str, attempt_id: str, match_number: int
+    ) -> Awaitable[str]: ...
+
 
 class AdmissionNamespace(Protocol):
     def getByName(self, name: str) -> AdmissionStub: ...
@@ -118,6 +122,13 @@ class CloudflareAdmissionGateway:
         if result is not None:
             raise RoomError(UNAVAILABLE, 503)
 
+    async def admit_rematch(self, lease_id: str, attempt_id: str, match_number: int) -> None:
+        result = await self._call(
+            lambda stub: stub.admit_rematch(lease_id, attempt_id, match_number)
+        )
+        if result is not None:
+            raise RoomError(UNAVAILABLE, 503)
+
 
 class RoomAdmission(DurableObject):
     """Persist admission decisions, with no server timers or per-guess coordination.
@@ -152,6 +163,12 @@ class RoomAdmission(DurableObject):
             "lease_id TEXT NOT NULL, match_number INTEGER NOT NULL, admitted_at INTEGER NOT NULL, "
             "PRIMARY KEY (lease_id, match_number))",
             "CREATE INDEX IF NOT EXISTS admission_match_time ON admission_matches(admitted_at)",
+            # This upgrades deployed ledgers without altering existing counter rows.
+            "CREATE TABLE IF NOT EXISTS admission_rematch_attempts ("
+            "id TEXT PRIMARY KEY, lease_id TEXT NOT NULL, match_number INTEGER NOT NULL, "
+            "admitted_at INTEGER NOT NULL)",
+            "CREATE INDEX IF NOT EXISTS admission_rematch_time "
+            "ON admission_rematch_attempts(admitted_at)",
         )
         for statement in statements:
             self.storage.sql.exec(statement)
@@ -162,6 +179,9 @@ class RoomAdmission(DurableObject):
             "DELETE FROM admission_preparations WHERE admitted_at <= ?", now - DAY_MS
         )
         self.storage.sql.exec("DELETE FROM admission_matches WHERE admitted_at <= ?", now - DAY_MS)
+        self.storage.sql.exec(
+            "DELETE FROM admission_rematch_attempts WHERE admitted_at <= ?", now - DAY_MS
+        )
         # Network keys exist only in this minute-long table, never in daily rows.
         self.storage.sql.exec(
             "DELETE FROM admission_creations WHERE admitted_at <= ?", now - MINUTE_MS
@@ -181,10 +201,12 @@ class RoomAdmission(DurableObject):
             "SELECT MIN(expires_at) AS event_at FROM admission_leases UNION ALL "
             "SELECT MIN(admitted_at) + ? FROM admission_preparations UNION ALL "
             "SELECT MIN(admitted_at) + ? FROM admission_matches UNION ALL "
-            "SELECT MIN(admitted_at) + ? FROM admission_creations)",
+            "SELECT MIN(admitted_at) + ? FROM admission_creations UNION ALL "
+            "SELECT MIN(admitted_at) + ? FROM admission_rematch_attempts)",
             DAY_MS,
             DAY_MS,
             MINUTE_MS,
+            DAY_MS,
         )
         if next_at is None:
             # Keep the tiny schema; deleting the alarm avoids recurring idle work.
@@ -251,7 +273,7 @@ class RoomAdmission(DurableObject):
         count = self._integer(f"SELECT COUNT(*) AS value FROM {table}")
         if count is not None and count >= limit:
             oldest = self._integer(f"SELECT MIN(admitted_at) AS value FROM {table}")
-            noun = "room" if kind == "preparations" else "match"
+            noun = "chat preparation" if kind == "preparations" else "match"
             raise RoomError(
                 f"The daily {noun} limit has been reached. Please try again later.",
                 429,
@@ -289,7 +311,7 @@ class RoomAdmission(DurableObject):
         # Preparation and match counters remain charged after release or failure.
         self.storage.sql.exec("DELETE FROM admission_leases WHERE id = ?", lease_id)
 
-    def _admit_match(self, lease_id: str, match_number: int, now: int) -> None:
+    def _require_match_lease(self, lease_id: str, match_number: int) -> None:
         lease = self._lease(lease_id)
         if lease["active"] != 1:
             raise RoomError("The lobby is still being prepared. Please try again.", 409)
@@ -299,6 +321,9 @@ class RoomAdmission(DurableObject):
             or not 0 <= match_number <= 2_147_483_647
         ):
             raise RoomError("Invalid match number.")
+
+    def _admit_match(self, lease_id: str, match_number: int, now: int) -> None:
+        self._require_match_lease(lease_id, match_number)
         existing = self.storage.sql.exec(
             "SELECT 1 FROM admission_matches WHERE lease_id = ? AND match_number = ?",
             lease_id,
@@ -309,6 +334,56 @@ class RoomAdmission(DurableObject):
         self._daily_limit("matches", self.settings.matches_per_day, now)
         self.storage.sql.exec(
             "INSERT INTO admission_matches (lease_id, match_number, admitted_at) VALUES (?, ?, ?)",
+            lease_id,
+            match_number,
+            now,
+        )
+
+    def _admit_rematch(self, lease_id: str, attempt_id: str, match_number: int, now: int) -> None:
+        self._require_match_lease(lease_id, match_number)
+        if not isinstance(attempt_id, str) or not LEASE_ID_PATTERN.fullmatch(attempt_id):
+            raise RoomError("Invalid rematch preparation.")
+        attempts = self.storage.sql.exec(
+            "SELECT lease_id, match_number FROM admission_rematch_attempts WHERE id = ?",
+            attempt_id,
+        ).toArray()
+        if attempts:
+            if attempts[0]["lease_id"] != lease_id or attempts[0]["match_number"] != match_number:
+                raise RoomError("That rematch preparation belongs to a different game.", 409)
+            return
+        # An attempt cannot reuse a room-creation id or another preparation.
+        if self.storage.sql.exec(
+            "SELECT 1 FROM admission_preparations WHERE id = ?", attempt_id
+        ).toArray():
+            raise RoomError("That chat preparation has already been used.", 409)
+        existing_match = self.storage.sql.exec(
+            "SELECT 1 FROM admission_matches WHERE lease_id = ? AND match_number = ?",
+            lease_id,
+            match_number,
+        ).toArray()
+        # Check both allowances before changing either one. Rejected rematches
+        # never consume preparations for work that will not be allowed to run.
+        self._daily_limit("preparations", self.settings.preparations_per_day, now)
+        if not existing_match:
+            self._daily_limit("matches", self.settings.matches_per_day, now)
+        self.storage.sql.exec(
+            "INSERT INTO admission_preparations (id, admitted_at) VALUES (?, ?)",
+            attempt_id,
+            now,
+        )
+        if not existing_match:
+            self.storage.sql.exec(
+                "INSERT INTO admission_matches (lease_id, match_number, admitted_at) "
+                "VALUES (?, ?, ?)",
+                lease_id,
+                match_number,
+                now,
+            )
+        # Write the retry marker last, after both allowance records exist.
+        self.storage.sql.exec(
+            "INSERT INTO admission_rematch_attempts (id, lease_id, match_number, admitted_at) "
+            "VALUES (?, ?, ?, ?)",
+            attempt_id,
             lease_id,
             match_number,
             now,
@@ -325,6 +400,11 @@ class RoomAdmission(DurableObject):
 
     async def admit_match(self, lease_id: str, match_number: int) -> str:
         return await self._invoke(lambda now: self._admit_match(lease_id, match_number, now))
+
+    async def admit_rematch(self, lease_id: str, attempt_id: str, match_number: int) -> str:
+        return await self._invoke(
+            lambda now: self._admit_rematch(lease_id, attempt_id, match_number, now)
+        )
 
     async def alarm(self, _alarm_info: object = None) -> None:
         self._prune(now_ms())

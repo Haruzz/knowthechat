@@ -12,7 +12,7 @@ Workers Static Assets stores the Vite output separately from Python modules. Req
 
 ## Multiplayer lobbies
 
-One Python `GameRoom` Durable Object coordinates each six-character lobby code through the `GAME_ROOMS` binding. Its SQLite storage contains one bounded JSON snapshot; creating a lobby stores only its selected 5, 10, or 20 rounds, not the downloaded archive. A shared `RoomAdmission` Durable Object through `ROOM_ADMISSION` coordinates room capacity and new-match limits. No D1, KV, second Worker, or additional public API origin is required.
+One Python `GameRoom` Durable Object coordinates each six-character lobby code through the `GAME_ROOMS` binding. Its SQLite storage contains one bounded JSON snapshot: the selected 5, 10, or 20 rounds, the original archive settings, and hashes of up to 2,000 recently used quote texts. The downloaded archive is not retained. A shared `RoomAdmission` Durable Object through `ROOM_ADMISSION` coordinates room capacity and new-match limits. No D1, KV, second Worker, or additional public API origin is required.
 
 ```text
 POST /api/rooms
@@ -35,17 +35,24 @@ GET /api/rooms/:code/events (WebSocket upgrade)
   -> native Worker forwarding to the same GameRoom, outside ASGI
   -> hibernating socket with player ID attachment and personalized snapshots
 
-GET /api/rooms/:code (fallback); POST /api/rooms/:code/{start,guess,next,rematch,leave}
+GET /api/rooms/:code (fallback); POST /api/rooms/:code/{start,guess,next,leave}
   -> bearer token and Pydantic command validation
   -> room loads SQLite state, applies deadlines, authenticates, mutates, and saves
   -> player-specific snapshot with Cache-Control: no-store
+
+POST /api/rooms/:code/rematch
+  -> authenticate the host and finished phase
+  -> admit the next match and a new archive preparation through ROOM_ADMISSION
+  -> fetch with original archive settings, excluding retained quote hashes
+  -> after successful preparation, save the new deck and reset to the waiting phase
+  -> player-specific snapshot; failed preparation preserves final standings
 ```
 
 Archive I/O finishes before initializing the room object. Room creation and new matches require admission before they commit. Ordinary gameplay, guesses and heartbeats do not contact the shared admission object. RPC calls use JSON strings across the Python/JavaScript binding boundary. SQLite remains authoritative for room state and the admission ledger, so both recover their decisions after eviction.
 
 Each round lasts 15, 20, or 30 seconds. Clients render the countdown from epoch-millisecond `deadline` and `serverNow`, but only the server clock decides whether a guess is on time. A Durable Object alarm closes the round without needing a connected browser; every command also applies a passed deadline before accepting input. A round reveals early once all current players answer. Correct guesses earn 1,000 points plus up to 500 for speed; incorrect or missing guesses earn zero. Scores and streaks are applied together at reveal, preventing another player's changing score from disclosing the answer. Before reveal, a player sees only their own choice and whether other players have answered; no answer, future deck, raw archive quote IDs, or token hashes enter the public snapshot.
 
-The host starts the match, advances from the reveal screen, and starts a rematch. Advancing after the last reveal shows the final standings. A rematch returns everyone to the waiting room, clears scores and streaks, and shuffles the same saved chat with fresh round IDs and choice order. It does not refetch the archive. Explicit host departure transfers hosting to the next member. New players may join only while waiting, with a maximum of eight players and unique display names.
+The host starts the match, advances from the reveal screen, and starts a rematch. Advancing after the last reveal shows the final standings. A rematch fetches another archive selection using the same channel, original rolling range or calendar year, and chatter pool. It excludes hashes of up to 2,000 recently used quote texts kept in the room's internal history. Only successful preparation replaces the deck, clears scores and streaks, and returns everyone to the waiting room. If fetching fails or cannot supply enough fresh quotes, the final standings remain; the host can retry or create a lobby with different settings. The browser shows fresh-chat loading and allows 110 seconds for the server's 90-second preparation timeout to return an error. Explicit host departure transfers hosting to the next member. New players may join only while waiting, with a maximum of eight players and unique display names.
 
 Lobbies have a fixed two-hour lifetime. Members inactive for 15 minutes are removed, with host transfer when necessary; HTTP presence updates are throttled, and connected players' presence is recovered from automatic WebSocket ping timestamps before applying timeouts. The earliest round deadline, membership timeout, or room expiry schedules the next alarm. Empty and expired rooms use `deleteAll()` to remove stored data and alarms. Requests for nonexistent codes read schema metadata without creating tables, stored values, or alarms.
 
@@ -59,15 +66,15 @@ The first multiplayer version used polling to simplify its transport; this was a
 
 ## Multiplayer admission
 
-The shared admission object applies four configurable limits: ten open rooms; 100 admitted archive preparations in a rolling 24-hour window; 100 new-match admissions in a rolling 24-hour window; and three admitted preparations per network key in a rolling 60-second window. Waiting rooms and final standings occupy capacity until the room closes or expires. Requests denied before preparation do not consume preparation records. Once admitted, a failed archive preparation still counts toward its rolling limit.
+The shared admission object applies four configurable limits: ten open rooms; 100 admitted archive preparations, including rematches, in a rolling 24-hour window; 100 new-match admissions in a rolling 24-hour window; and three admitted new-room preparations per network key in a rolling 60-second window. Waiting rooms and final standings occupy capacity until the room closes or expires. Requests denied before preparation do not consume preparation records. Once admitted, a failed archive preparation still counts toward its rolling limit.
 
 Room creation reserves a slot before fetching any archive. The preparation timeout is 90 seconds; an unfinished reservation expires after two minutes. A completed room keeps its slot until its fixed two-hour expiry or closure, including departure of the last member. Cleanup uses scheduled alarms and expiry checks, so an interrupted preparation does not hold capacity indefinitely.
 
-The first start reserves a match admission. A rematch reserves the next match before clearing the previous results; the following start reuses that admission rather than counting the same match twice. Admission identifiers make repeated checks for the same match idempotent. If a check is unavailable or denied, the new action does not proceed; existing guesses, reveals and connected games continue normally. The browser displays a retry delay when supplied, disables only the rejected action until that delay expires, and never automatically retries a creation or command.
+The first start reserves a match admission. Every admitted rematch attempt counts as another archive preparation, including failed fetches, while retaining the room's existing slot and using no new per-network creation entry. A rematch reserves the next match before fetching; retries for that pending match reuse its admission, and the following start does not count it again. Admission identifiers make repeated checks for the same match idempotent. If a check is unavailable or denied, the new action does not proceed; existing guesses, reveals and connected games continue normally. The browser displays a retry delay when supplied, disables only the rejected action until that delay expires, and never automatically retries a creation or command.
 
 The per-network ledger stores only a SHA-256 network key and admission timestamp, for 60 seconds. This key is pseudonymous, not anonymous; unhashed IP addresses are not persisted in admission storage. Preparation and match records contain reservation identifiers and timestamps for their 24-hour windows. Active reservations retain only the lifecycle data needed to release capacity. Requests and alarms prune expired records.
 
-Rooms created before admission reservations were introduced can finish their current game. Starting a new game or rematch from a legacy room requires creating a fresh lobby.
+Rooms created before admission reservations were introduced can finish their current game. Starting a new game or rematch from a room without a reservation requires creating a fresh lobby. Rooms without stored original archive settings also require a fresh lobby for rematches. Quote hashes stay internal and never enter a public snapshot; they expire with the room's fixed two-hour lifetime.
 
 ## Request lifecycle
 

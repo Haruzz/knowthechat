@@ -88,6 +88,12 @@ export default function PrivacyPage() {
             or when the last participant leaves. Cloudflare platform backup and
             recovery retention may outlast application deletion.
           </p>
+          <p>
+            Rooms also store the original archive settings and hashes of up to
+            2,000 recently used quote texts to avoid repeats in rematches. This
+            internal quote history is not sent to players and is deleted with
+            the room, within its two-hour lifetime.
+          </p>
         </section>
 
         <section>

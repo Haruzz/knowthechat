@@ -23,13 +23,13 @@ an official partnership or endorsement.
 ## Contributing ideas
 
 The current implementation includes solo streak fire, accessibility preferences,
-private multiplayer lobbies, timed guesses, speed scoring, rematches and
+private multiplayer lobbies, timed guesses, speed scoring, fresh-chat rematches and
 hibernating WebSockets for immediate room updates. Room codes stay hidden until
 revealed, with separate copy controls for sharing off stream. Configurable admission limits control open rooms, archive preparations and new matches.
 
 Potential next additions:
 
-- Fresh-archive rematches and a daily shared challenge with a spoiler-free score card.
+- A daily shared challenge with a spoiler-free score card.
 - Team mode, where friends agree on one answer before the deadline.
 - Host controls for locking a lobby and removing disruptive players.
 - Larger viewer games with smaller room updates and measured load tests before raising the eight-player cap.

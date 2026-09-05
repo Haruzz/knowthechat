@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-// Run against an isolated local Worker with limits 1 open / 2 preparations /
+// Run against an isolated local Worker with limits 1 open / 3 preparations /
 // 2 matches / 3 creations per minute. Use fresh local persistence for each run.
 const origin = new URL(
   process.env.KNOWTHECHAT_BACKEND_ORIGIN ?? "http://127.0.0.1:8788",
@@ -53,9 +53,11 @@ const settings = {
 };
 
 async function finishMatch(host, guest) {
+  const texts = [];
   const path = `/api/rooms/${host.room.code}`;
   let room = await ok(`${path}/start`, {}, host.token);
   while (room.phase === "round") {
+    texts.push(room.round.text);
     const guess = { roundId: room.round.id, choice: room.round.choices[0] };
     await ok(`${path}/guess`, guess, host.token);
     room = await ok(`${path}/guess`, guess, guest.token);
@@ -63,7 +65,7 @@ async function finishMatch(host, guest) {
     room = await ok(`${path}/next`, {}, host.token);
   }
   assert.equal(room.phase, "finished");
-  return room;
+  return { room, texts };
 }
 
 try {
@@ -75,9 +77,12 @@ try {
 
   const guest = await ok(`${path}/join`, { name: "Admission guest" });
   members.push({ path, token: guest.token });
-  await finishMatch(host, guest);
+  const first = await finishMatch(host, guest);
   await ok(`${path}/rematch`, {}, host.token);
-  const final = await finishMatch(host, guest);
+  const second = await finishMatch(host, guest);
+  const final = second.room;
+  assert.ok(second.texts.every((text) => !first.texts.includes(text)));
+  console.log("PASS: the rematch uses fresh quotes in the same lobby.");
   denied(await request(`${path}/rematch`, {}, host.token), /daily match limit/);
   const retained = await ok(path, undefined, host.token);
   assert.equal(retained.phase, "finished");
@@ -92,7 +97,7 @@ try {
   const replacementPath = `/api/rooms/${replacement.room.code}`;
   members.push({ path: replacementPath, token: replacement.token });
   await ok(`${replacementPath}/leave`, {}, replacement.token);
-  denied(await request("/api/rooms", settings), /daily room limit/);
+  denied(await request("/api/rooms", settings), /daily chat preparation limit/);
   console.log(
     "PASS: leaving releases capacity; daily preparation counts survive room deletion.",
   );

@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 from dataclasses import asdict, dataclass, field
+from typing import Literal
 
 from pydantic import TypeAdapter
 
@@ -52,6 +53,20 @@ class GameRound:
     author: str
 
 
+MAX_QUOTE_HISTORY = 2_000
+
+
+def quote_key(text: str) -> str:
+    return hashlib.sha256(" ".join(text.casefold().split()).encode()).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class RoomArchiveSettings:
+    range_days: float | None
+    archive_year: int | None
+    chatter_pool: Literal[25, 50, 100]
+
+
 @dataclass(slots=True)
 class Room:
     code: str
@@ -67,6 +82,10 @@ class Room:
     revision: int = 0
     admission_id: str = ""
     match_number: int = 0
+    archive_settings: RoomArchiveSettings | None = None
+    used_quote_keys: list[str] = field(default_factory=list)
+    rematch_attempt: str = ""
+    rematch_until: int = 0
 
     def to_json(self) -> str:
         return json.dumps(asdict(self), separators=(",", ":"))
@@ -163,7 +182,17 @@ class Room:
         self.require_host(player)
         if self.phase != "finished":
             raise RoomError("Finish this match before a rematch.", 409)
+        history = dict.fromkeys(
+            [
+                *self.used_quote_keys,
+                *(quote_key(item.text) for item in self.rounds),
+                *(quote_key(item.text) for item in rounds),
+            ]
+        )
+        self.used_quote_keys = list(history)[-MAX_QUOTE_HISTORY:]
         self.rounds = rounds
+        self.rematch_attempt = ""
+        self.rematch_until = 0
         self.match_number += 1
         self.phase = "waiting"
         self.round_index = -1

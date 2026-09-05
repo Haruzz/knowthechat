@@ -28,6 +28,8 @@ class AdmissionGateway(Protocol):
 
     async def admit_match(self, lease_id: str, match_number: int) -> None: ...
 
+    async def admit_rematch(self, lease_id: str, attempt_id: str, match_number: int) -> None: ...
+
 
 def _limit(env: object, name: str, default: int) -> int:
     # Wrangler text variables are strings. Reject accidental booleans, objects,

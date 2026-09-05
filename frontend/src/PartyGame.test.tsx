@@ -86,6 +86,124 @@ afterEach(() => {
 });
 
 describe("private party game", () => {
+  it.each([200, 503])(
+    "keeps final standings while a slow fresh-chat rematch returns %s",
+    async (status) => {
+      vi.useFakeTimers();
+      remember();
+      let room = {
+        ...waitingRoom(),
+        phase: "finished",
+        players: [
+          { ...player("host", "Harun"), score: 1_000 },
+          { ...player("friend", "Friend"), score: 2_000 },
+        ],
+      };
+      let rematchSignal: AbortSignal | undefined;
+      const fetchMock = vi
+        .spyOn(globalThis, "fetch")
+        .mockImplementation((input, init) => {
+          if (!String(input).endsWith("/rematch"))
+            return Promise.resolve(response(room));
+          return new Promise<Response>((resolve, reject) => {
+            rematchSignal = init?.signal ?? undefined;
+            const timer = window.setTimeout(() => {
+              if (status === 200) {
+                room = waitingRoom();
+                resolve(response(room));
+              } else {
+                resolve(
+                  response(
+                    {
+                      error:
+                        "Fresh chat could not be loaded. Please try again.",
+                      retryAfter: 15,
+                    },
+                    status,
+                  ),
+                );
+              }
+            }, 95_000);
+            rematchSignal?.addEventListener(
+              "abort",
+              () => {
+                window.clearTimeout(timer);
+                reject(new DOMException("Aborted", "AbortError"));
+              },
+              { once: true },
+            );
+          });
+        });
+      render(<PartyGame onBack={vi.fn()} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      await act(async () => {
+        fireEvent.click(
+          screen.getByRole("button", { name: "Play a rematch →" }),
+        );
+      });
+      expect(
+        screen.getByRole("button", { name: "Fetching fresh chat…" }),
+      ).toHaveProperty("disabled", true);
+      expect(
+        screen.getByText(
+          "Finding new clues for the next game. This can take a moment.",
+        ),
+      ).toBeTruthy();
+      expect(
+        screen.getByRole("heading", { name: "Friend knows the chat!" }),
+      ).toBeTruthy();
+      expect(
+        screen.getByRole("region", { name: "Scoreboard" }).textContent,
+      ).toContain((2_000).toLocaleString());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(90_000);
+      });
+      expect(rematchSignal?.aborted).toBe(false);
+      expect(
+        screen.getByRole("button", { name: "Fetching fresh chat…" }),
+      ).toBeTruthy();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      expect(
+        screen.queryByText(
+          "Finding new clues for the next game. This can take a moment.",
+        ),
+      ).toBeNull();
+      expect(sessionStorage.getItem(SESSION_KEY)).not.toBeNull();
+      if (status === 200) {
+        expect(
+          screen.getByRole("heading", { name: "Gather your chat detectives." }),
+        ).toBeTruthy();
+        expect(screen.queryByRole("region", { name: "Scoreboard" })).toBeNull();
+      } else {
+        expect(screen.getByRole("alert").textContent).toBe(
+          "Fresh chat could not be loaded. Please try again.",
+        );
+        expect(
+          screen.getByRole("heading", { name: "Friend knows the chat!" }),
+        ).toBeTruthy();
+        expect(
+          screen.getByRole("region", { name: "Scoreboard" }).textContent,
+        ).toContain((2_000).toLocaleString());
+        expect(screen.getByText("Try again in 15 seconds.")).toBeTruthy();
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(15_000);
+        });
+        expect(
+          screen.getByRole("button", { name: "Play a rematch →" }),
+        ).toHaveProperty("disabled", false);
+      }
+      expect(
+        fetchMock.mock.calls.filter(([input]) =>
+          String(input).endsWith("/rematch"),
+        ),
+      ).toHaveLength(1);
+    },
+  );
+
   it("waits past the archive deadline to receive the server's preparation timeout and retry delay", async () => {
     vi.useFakeTimers();
     let signal: AbortSignal | undefined;

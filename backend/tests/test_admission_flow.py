@@ -207,7 +207,7 @@ def pause_match_admission(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("action", ["start", "rematch"])
+@pytest.mark.parametrize("action", ["start"])
 async def test_racing_start_or_rematch_commits_once_and_reuses_its_admission_ticket(
     runtime: tuple[Any, Storage], monkeypatch: pytest.MonkeyPatch, action: str
 ) -> None:
@@ -292,7 +292,12 @@ async def test_denied_rematch_preserves_finished_scores_and_returns_retry_after(
     response = json.loads(await module.instance.command("rematch", host, "{}"))
     assert response["status"] == 429
     assert response["retryAfter"] == 600
-    assert module.instance._load().to_json() == before
+    retained = json.loads(module.instance._load().to_json())
+    original = json.loads(before)
+    retained.pop("revision")
+    original.pop("revision")
+    assert retained == original
+    assert module.archive.calls == 0
     assert not module.admission.match_calls
 
 

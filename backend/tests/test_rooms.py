@@ -1,13 +1,22 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from api_models import ChatterResponse, PublicArchiveRequest, PublicArchiveResponse, QuoteResponse
 from domain.admission import PENDING_LEASE_MS, Reservation
-from domain.rooms import MAX_PLAYERS, PLAYER_IDLE_MS, ROOM_LIFETIME_MS, GameRound, Room, RoomError
+from domain.rooms import (
+    MAX_PLAYERS,
+    PLAYER_IDLE_MS,
+    ROOM_LIFETIME_MS,
+    GameRound,
+    Room,
+    RoomArchiveSettings,
+    RoomError,
+)
 from fastapi_app import MAX_REQUEST_BYTES, BoundedRequestBodyMiddleware, create_app
 from room_models import CreateRoomRequest
 from room_types import CommandPayload, CommandResult, RoomResult, snapshot_from_result
@@ -42,6 +51,7 @@ def make_room(count: int = 5) -> tuple[Room, str, str]:
             NOW + ROOM_LIFETIME_MS,
             [host, guest],
             admission_id="a" * 32,
+            archive_settings=RoomArchiveSettings(90, None, 50),
         ),
         host_token,
         guest_token,
@@ -115,7 +125,12 @@ def test_full_match_and_rematch_reset_and_change_round_identifiers() -> None:
     assert room.players[0].best_streak == 5
     assert room.players[0].score > 5_000
     old_ids = {item.id for item in room.rounds}
-    state = execute_command(room, "rematch", host_token, {}, NOW + 30_000)
+    fresh = [
+        replace(item, id=f"fresh-{index}", text=f"a fresh chat message {index}")
+        for index, item in enumerate(room.rounds)
+    ]
+    room.rematch(room.authenticate(host_token), fresh)
+    state = room.snapshot(room.authenticate(host_token), NOW + 30_000)
     assert state["phase"] == "waiting"
     assert state["round"] is None
     assert state["roundNumber"] == 0
@@ -235,6 +250,7 @@ class FakeAdmission:
         self.releases: list[str] = []
         self.match_calls: list[tuple[str, int]] = []
         self.matches: set[tuple[str, int]] = set()
+        self.rematch_calls: list[tuple[str, str, int]] = []
         self.failure: RoomError | None = None
 
     def _check(self) -> None:
@@ -259,6 +275,11 @@ class FakeAdmission:
     async def admit_match(self, lease_id: str, match_number: int) -> None:
         self._check()
         self.match_calls.append((lease_id, match_number))
+        self.matches.add((lease_id, match_number))
+
+    async def admit_rematch(self, lease_id: str, attempt_id: str, match_number: int) -> None:
+        self._check()
+        self.rematch_calls.append((lease_id, attempt_id, match_number))
         self.matches.add((lease_id, match_number))
 
 

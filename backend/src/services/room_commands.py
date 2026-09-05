@@ -5,7 +5,7 @@ from typing import Literal, overload
 from domain.rooms import Room, RoomError
 from room_models import GuessRequest, JoinRoomRequest
 from room_types import CommandResult, LeaveResult, RoomSession, RoomSnapshot, SnapshotAction
-from services.rooms import new_player, shuffled_rematch
+from services.rooms import new_player
 
 
 @overload
@@ -55,7 +55,7 @@ def execute_command(
     elif action == "next":
         room.next_round(player, now)
     elif action == "rematch":
-        room.rematch(player, shuffled_rematch(room.rounds))
+        raise RoomError("Fresh chat must be prepared before a rematch.", 409)
     elif action == "leave":
         room.leave(player)
         return {"ok": True}

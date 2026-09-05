@@ -12,7 +12,7 @@
   justify-content: center;
   gap: 12px;
   min-width: 0;
-  padding: 15px 12px;
+  padding: 18px 14px;
   border: 1px solid #4a415e;
   border-radius: 13px;
   background: #211b32;
@@ -41,15 +41,21 @@
   display: block;
 }
 
+.play-mode-picker button > span:last-child {
+  min-width: 0;
+}
+
 .play-mode-picker strong {
   color: #f7f3ff;
-  font-size: 13px;
+  font-size: 18px;
+  line-height: 1.25;
 }
 
 .play-mode-picker small {
   margin-top: 5px;
   color: #b5a8c5;
-  font-size: 10px;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 @media (max-width: 420px) {
@@ -58,9 +64,9 @@
     padding-inline: 8px;
   }
   .play-mode-picker strong {
-    font-size: 12px;
+    font-size: 16px;
   }
   .play-mode-picker small {
-    font-size: 9px;
+    font-size: 11px;
   }
 }

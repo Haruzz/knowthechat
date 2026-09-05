@@ -6,14 +6,23 @@ import re
 import secrets
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Protocol
 
 from pydantic import TypeAdapter
 
 from api_models import PublicArchiveRequest, PublicArchiveResponse
 from domain.admission import AdmissionGateway
-from domain.rooms import ROOM_LIFETIME_MS, GameRound, Player, Room, RoomError, token_hash
+from domain.rooms import (
+    ROOM_LIFETIME_MS,
+    GameRound,
+    Player,
+    Room,
+    RoomArchiveSettings,
+    RoomError,
+    quote_key,
+    token_hash,
+)
 from room_models import CreateRoomRequest
 from room_types import (
     CommandPayload,
@@ -57,13 +66,69 @@ def new_player(name: str, now: int) -> tuple[Player, str]:
     return Player(secrets.token_hex(12), name, token_hash(token), now), token
 
 
-def shuffled_rematch(rounds: list[GameRound]) -> list[GameRound]:
+def build_rounds(
+    archive: PublicArchiveResponse, round_count: int, excluded: set[str] | None = None
+) -> list[GameRound]:
+    names = list(dict.fromkeys(chatter.name for chatter in archive.chatters))
+    seen = set(excluded or ())
+    quotes = []
+    for quote in archive.quotes:
+        key = quote_key(quote.text)
+        if quote.author in names and key not in seen:
+            quotes.append(quote)
+            seen.add(key)
+    if len(names) < 3 or len(quotes) < round_count:
+        raise RoomError(
+            (
+                "Not enough fresh chat. Try again or create a lobby with a wider period."
+                if excluded is not None
+                else "Not enough chat for this match. Try another channel, period, or fewer rounds."
+            ),
+            422,
+        )
     rng = secrets.SystemRandom()
-    reordered = rng.sample(rounds, len(rounds))
-    return [
-        replace(item, id=secrets.token_hex(12), choices=rng.sample(item.choices, len(item.choices)))
-        for item in reordered
-    ]
+    rounds: list[GameRound] = []
+    for quote in rng.sample(quotes, round_count):
+        alternatives = rng.sample([name for name in names if name != quote.author], 2)
+        choices = [quote.author, *alternatives]
+        rng.shuffle(choices)
+        emotes: list[EmoteSnapshot] = []
+        for emote in quote.emotes:
+            rendered: EmoteSnapshot = {"id": emote.id, "start": emote.start, "end": emote.end}
+            if emote.url is not None:
+                rendered["url"] = emote.url
+            emotes.append(rendered)
+        rounds.append(
+            GameRound(
+                id=secrets.token_hex(12),
+                text=quote.text,
+                emotes=emotes,
+                sent_at=quote.sent_at,
+                difficulty=quote.difficulty,
+                choices=choices,
+                author=quote.author,
+            )
+        )
+    return rounds
+
+
+async def fresh_rounds(room: Room, archive: ArchiveService) -> list[GameRound]:
+    settings = room.archive_settings
+    if settings is None:
+        raise RoomError("Create a new lobby to fetch fresh chat for rematches.", 409)
+    response = await archive.execute(
+        PublicArchiveRequest(
+            channel=room.channel,
+            rangeDays=settings.range_days,
+            archiveYear=settings.archive_year,
+            chatterPool=settings.chatter_pool,
+        )
+    )
+    if response.channel != room.channel:
+        raise RoomError("Fresh chat could not be loaded. Please try again.", 503, 15)
+    excluded = set(room.used_quote_keys)
+    excluded.update(quote_key(item.text) for item in room.rounds)
+    return build_rounds(response, len(room.rounds), excluded)
 
 
 @dataclass(slots=True)
@@ -114,36 +179,7 @@ class RoomService:
         archive: PublicArchiveResponse,
         preparation: RoomPreparation,
     ) -> RoomSession:
-        names = list(dict.fromkeys(chatter.name for chatter in archive.chatters))
-        quotes = [quote for quote in archive.quotes if quote.author in names]
-        if len(names) < 3 or len(quotes) < request.round_count:
-            raise RoomError(
-                "Not enough chat for this match. Try another channel, period, or fewer rounds.",
-                422,
-            )
-        rng = secrets.SystemRandom()
-        rounds: list[GameRound] = []
-        for quote in rng.sample(quotes, request.round_count):
-            alternatives = rng.sample([name for name in names if name != quote.author], 2)
-            choices = [quote.author, *alternatives]
-            rng.shuffle(choices)
-            emotes: list[EmoteSnapshot] = []
-            for emote in quote.emotes:
-                rendered: EmoteSnapshot = {"id": emote.id, "start": emote.start, "end": emote.end}
-                if emote.url is not None:
-                    rendered["url"] = emote.url
-                emotes.append(rendered)
-            rounds.append(
-                GameRound(
-                    id=secrets.token_hex(12),
-                    text=quote.text,
-                    emotes=emotes,
-                    sent_at=quote.sent_at,
-                    difficulty=quote.difficulty,
-                    choices=choices,
-                    author=quote.author,
-                )
-            )
+        rounds = build_rounds(archive, request.round_count)
         now = self.clock()
         player, token = new_player(request.name, now)
         for _attempt in range(4):
@@ -157,6 +193,10 @@ class RoomService:
                 expires_at=now + ROOM_LIFETIME_MS,
                 players=[player],
                 admission_id=preparation.admission_id,
+                archive_settings=RoomArchiveSettings(
+                    request.range_days, request.archive_year, request.chatter_pool
+                ),
+                used_quote_keys=[quote_key(item.text) for item in rounds],
             )
             state = room.to_json()
             if len(state.encode()) > MAX_ROOM_STATE_BYTES:

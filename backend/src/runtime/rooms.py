@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import secrets
 from typing import TYPE_CHECKING, cast
 
 # Cloudflare provides `js` at runtime; backend/typings supplies local editor types.
@@ -22,7 +24,14 @@ from runtime.admission import CloudflareAdmissionGateway
 from runtime.bindings import RoomEnvironment, RoomNamespace, RoomStorage
 from runtime.room_events import PROTOCOL, socket_error, socket_token
 from services.room_commands import execute_command
-from services.rooms import MAX_ROOM_STATE_BYTES, decode_result, now_ms, result_json
+from services.rooms import (
+    MAX_ROOM_STATE_BYTES,
+    ArchiveService,
+    decode_result,
+    fresh_rounds,
+    now_ms,
+    result_json,
+)
 
 if TYPE_CHECKING:
     from js import (  # pyright: ignore[reportMissingModuleSource]
@@ -90,6 +99,78 @@ class GameRoom(DurableObject):
                 "Lobbies are temporarily unavailable. Please try again.", 503, 15
             ) from error
         return CloudflareAdmissionGateway(namespace)
+
+    def _archive(self) -> ArchiveService:
+        from runtime.archive import build_archive_service
+
+        return build_archive_service()
+
+    async def _rematch(self, room: Room, token: str, now: int) -> str:
+        attempt = ""
+        try:
+            previous = room.to_json()
+            self._refresh_presence(room, now)
+            room.advance(now)
+            ticket = self._match_ticket(room, "rematch", token)
+            if room.archive_settings is None:
+                raise RoomError("Create a new lobby to fetch fresh chat for rematches.", 409)
+            if room.rematch_attempt and now < room.rematch_until:
+                raise RoomError("Fresh chat is already being prepared. Please wait.", 409)
+            attempt = secrets.token_urlsafe(24)
+            room.rematch_attempt = attempt
+            room.rematch_until = min(room.expires_at, now + 120_000)
+            room.authenticate(token).last_seen = now
+            # Persist the attempt before any I/O. Concurrent requests cannot fetch
+            # another deck; the lease also recovers a crashed preparation.
+            self._persist(room, previous, now)
+            async with asyncio.timeout(90):
+                await self._schedule(room)
+                await self._admission().admit_rematch(ticket[0], attempt, ticket[1])
+                rounds = await fresh_rounds(room, self._archive())
+            # Leaves, host transfers and expiry can happen during archive I/O.
+            now = now_ms()
+            current = self._load()
+            if current is None:
+                raise RoomError("Lobby not found or expired.", 404)
+            if now >= current.expires_at:
+                await self._delete(current)
+                raise RoomError("Lobby not found or expired.", 404)
+            previous = current.to_json()
+            self._refresh_presence(current, now)
+            current.advance(now)
+            if (
+                current.rematch_attempt != attempt
+                or now >= current.rematch_until
+                or self._match_ticket(current, "rematch", token) != ticket
+            ):
+                raise RoomError("The lobby changed. Please try again.", 409)
+            player = current.authenticate(token)
+            current.rematch(player, rounds)
+            if len(current.to_json().encode()) > MAX_ROOM_STATE_BYTES:
+                raise RoomError("Fresh chat is too large for this lobby. Please try again.", 422)
+            self._persist(current, previous, now)
+            await self._schedule(current)
+            return result_json(current.snapshot(player, now))
+        except RoomError as error:
+            return result_json(error=error)
+        except TimeoutError:
+            return result_json(
+                error=RoomError("Fresh chat took too long. Please try again shortly.", 503, 15)
+            )
+        except Exception:
+            return result_json(
+                error=RoomError(
+                    "Fresh chat could not be loaded. Please try again shortly.", 503, 15
+                )
+            )
+        finally:
+            if attempt:
+                current = self._load()
+                if current is not None and current.rematch_attempt == attempt:
+                    previous = current.to_json()
+                    current.rematch_attempt = ""
+                    current.rematch_until = 0
+                    self._persist(current, previous, now_ms())
 
     @staticmethod
     def _match_ticket(room: Room, action: str, token: str) -> tuple[str, int]:
@@ -301,8 +382,14 @@ class GameRoom(DurableObject):
         if now >= room.expires_at:
             await self._delete(room)
             return result_json(error=RoomError("Lobby not found or expired.", 404))
+        if action == "rematch":
+            try:
+                EmptyRoomRequest.model_validate_json(payload_json)
+            except (ValidationError, ValueError, TypeError):
+                return result_json(error=RoomError("Invalid lobby request."))
+            return await self._rematch(room, token, now)
         ticket: tuple[str, int] | None = None
-        if action in ("start", "rematch"):
+        if action == "start":
             try:
                 EmptyRoomRequest.model_validate_json(payload_json)
                 self._refresh_presence(room, now)
