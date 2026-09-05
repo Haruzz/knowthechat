@@ -1,3 +1,5 @@
+* text=auto eol=lf
+
 # Keep generated runtime types available to fresh checkouts, but collapse their
 # diff on GitHub and exclude them from repository language statistics.
 backend/typings/js/** linguist-generated=true
