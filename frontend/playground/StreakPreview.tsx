@@ -7,12 +7,24 @@ import {
   prepareAudio,
   stopAudio,
 } from "../src/audio";
+import { useMusic } from "../src/music";
 import "./StreakPreview.css";
 
 export default function StreakPreview() {
   const [streak, setStreak] = useState(0);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [effectsEnabled, setEffectsEnabled] = useState(true);
+  const [musicEnabled, setMusicEnabled] = useState(false);
+  const [musicVolume, setMusicVolume] = useState(0.35);
+  const [musicPreview, setMusicPreview] = useState<
+    "lobby" | "gameplay" | "urgent"
+  >("lobby");
+  const music = useMusic({
+    enabled: musicEnabled,
+    volume: musicVolume,
+    scene: musicPreview === "lobby" ? "lobby" : "gameplay",
+    urgent: musicPreview === "urgent",
+  });
   const [celebration, setCelebration] = useState<{
     count: number;
     sequence: number;
@@ -21,7 +33,10 @@ export default function StreakPreview() {
 
   function celebrate(count: number) {
     setCelebration({ count, sequence: ++sequence.current });
-    if (soundEnabled) playStreakSound(count);
+    if (soundEnabled) {
+      music.duck();
+      playStreakSound(count);
+    }
   }
   function jumpTo(count: number) {
     setStreak(count);
@@ -97,6 +112,16 @@ export default function StreakPreview() {
           <GamePreferences
             soundEnabled={soundEnabled}
             effectsEnabled={effectsEnabled}
+            musicEnabled={musicEnabled}
+            musicVolume={musicVolume}
+            onMusicChange={() => {
+              if (!musicEnabled) music.prepare();
+              setMusicEnabled(!musicEnabled);
+            }}
+            onMusicVolumeChange={(volume) => {
+              if (musicEnabled) music.prepare();
+              setMusicVolume(volume);
+            }}
             onSoundChange={() => {
               if (soundEnabled) stopAudio();
               else prepareAudio();
@@ -104,6 +129,35 @@ export default function StreakPreview() {
             }}
             onEffectsChange={() => setEffectsEnabled(!effectsEnabled)}
           />
+          <p className="preview-note">
+            Turn music on to audition a scene, then try a milestone to hear the
+            music dip beneath its celebration.
+          </p>
+          <div
+            className="game-preferences"
+            role="group"
+            aria-label="Music preview scene"
+          >
+            {(
+              [
+                ["lobby", "Lobby"],
+                ["gameplay", "Gameplay"],
+                ["urgent", "Final seconds"],
+              ] as const
+            ).map(([scene, label]) => (
+              <button
+                key={scene}
+                type="button"
+                aria-pressed={musicPreview === scene}
+                onClick={() => {
+                  if (musicEnabled) music.prepare();
+                  setMusicPreview(scene);
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <p className="preview-note">
             This playground uses a sample clue and does not change your game
             scores. Your device’s reduced-motion preference still applies.

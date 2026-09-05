@@ -100,6 +100,61 @@ afterEach(() => {
 });
 
 describe("live party snapshots", () => {
+  it("changes music with the room phase and adds urgency only while an unanswered round has time left", async () => {
+    const onMusicStateChange = vi.fn();
+    render(
+      <PartyGame onBack={vi.fn()} onMusicStateChange={onMusicStateChange} />,
+    );
+    expect(onMusicStateChange).toHaveBeenLastCalledWith("lobby", false);
+    const socket = FakeRoomSocket.instances[0];
+    const room = activeRoom();
+    act(() => socket.message({ type: "room", room }));
+    expect(onMusicStateChange).toHaveBeenLastCalledWith("gameplay", false);
+
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    expect(onMusicStateChange).toHaveBeenLastCalledWith("gameplay", true);
+    act(() =>
+      socket.message({
+        type: "room",
+        room: {
+          ...room,
+          revision: 3,
+          serverNow: Date.now(),
+          players: room.players.map((player) =>
+            player.id === "host"
+              ? { ...player, answered: true, choice: "Alice" }
+              : player,
+          ),
+        },
+      }),
+    );
+    expect(onMusicStateChange).toHaveBeenLastCalledWith("gameplay", false);
+
+    act(() => socket.message({ type: "room", room: reveal() }));
+    expect(onMusicStateChange).toHaveBeenLastCalledWith("gameplay", false);
+    act(() =>
+      socket.message({
+        type: "room",
+        room: { ...reveal(), revision: 5, phase: "finished" },
+      }),
+    );
+    expect(onMusicStateChange).toHaveBeenLastCalledWith("lobby", false);
+    expect(FakeRoomSocket.instances).toHaveLength(1);
+  });
+
+  it("ends music urgency at the deadline even while waiting for the shared reveal", async () => {
+    const onMusicStateChange = vi.fn();
+    render(
+      <PartyGame onBack={vi.fn()} onMusicStateChange={onMusicStateChange} />,
+    );
+    const socket = FakeRoomSocket.instances[0];
+    act(() => socket.message({ type: "room", room: activeRoom() }));
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    expect(onMusicStateChange).toHaveBeenLastCalledWith("gameplay", true);
+    await act(async () => vi.advanceTimersByTimeAsync(5_000));
+    expect(onMusicStateChange).toHaveBeenLastCalledWith("gameplay", false);
+  });
+
   it("reveals an alarm-driven round immediately and celebrates once without polling or reconnecting on preference changes", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch");
     const firstCallback = vi.fn();

@@ -17,6 +17,12 @@ Rooms expire after two hours. The default admission policy allows ten open rooms
 
 Reloading the same browser tab restores your player session. Room updates arrive over hibernating WebSockets, with automatic reconnection and an HTTP fallback when needed; the server owns deadlines, scores and answer reveals. This mode is intended for casual matches with friends using public source material.
 
+## Music and sound
+
+Optional music plays in both modes: a relaxed lobby loop during setup and between matches, and a quieter loop during gameplay. The last five seconds of an unanswered multiplayer round gently lift the music, and streak jingles briefly lower it. Music starts off; each player controls their own music toggle and volume separately from sound effects and visual effects. Preferences stay in that browser.
+
+The two compressed loops are served with the frontend and played locally, with no external music service. Tracks load only after music is enabled, playback waits for a browser interaction when required, and hidden tabs pause the music. Artist credits, source links and the CC0 license are included in [the audio notices](frontend/public/audio/CREDITS.md).
+
 ## Prerequisites
 
 - Node.js 22.13 or newer
@@ -82,7 +88,7 @@ Start the standalone playground from the repository root:
 npm run dev:streaks
 ```
 
-Open [http://127.0.0.1:5174](http://127.0.0.1:5174). No backend, Twitch channel or archive is needed. Use the milestone buttons to preview **On Fire (5)**, **Unstoppable (10)** and **Chat Legend (15+)**, including their sounds. Simulate correct guesses or a miss, replay a celebration, and toggle sound or visual effects. Reduced-motion preferences still apply. Stop the server with **Ctrl+C**.
+Open [http://127.0.0.1:5174](http://127.0.0.1:5174). No backend, Twitch channel or archive is needed. Use the milestone buttons to preview **On Fire (5)**, **Unstoppable (10)** and **Chat Legend (15+)**, including their sounds. Enable Music to audition **Lobby**, **Gameplay**, and **Final seconds**, adjust its volume, and hear the music dip beneath streak jingles. Simulate correct guesses or a miss, replay a celebration, and toggle sound or visual effects. Reduced-motion preferences still apply. Stop the server with **Ctrl+C**.
 
 This page has a separate development entry point in `frontend/playground/`, listens only on the local loopback interface, and is excluded from the normal production build. The game has no preview link or query-string switch; `?preview=streaks` no longer opens a playground.
 

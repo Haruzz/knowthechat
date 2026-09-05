@@ -8,6 +8,7 @@ import {
 } from "react";
 
 import StreakEffects from "./StreakEffects";
+import type { MusicScene } from "./music";
 import { connectRoom, RoomError } from "./roomConnection";
 import {
   parseLeave,
@@ -263,12 +264,14 @@ export default function PartyGame({
   preferences,
   onRoundRevealed,
   onInteraction,
+  onMusicStateChange,
 }: {
   onBack: () => void;
   effectsEnabled?: boolean;
   preferences?: ReactNode;
   onRoundRevealed?: (correct: boolean, streak: number) => void;
   onInteraction?: () => void;
+  onMusicStateChange?: (scene: MusicScene, urgent: boolean) => void;
 }) {
   const [session, setSession] = useState<Session | null>(savedSession);
   const [room, setRoom] = useState<Room | null>(null);
@@ -303,6 +306,16 @@ export default function PartyGame({
     roundId: string | null;
   } | null>(null);
   const phase = room?.phase;
+  const me = room?.players.find((player) => player.id === room.you);
+  const secondsLeft =
+    !room || room.deadline === null
+      ? 0
+      : Math.max(0, Math.ceil((room.deadline - (now + clockOffset)) / 1_000));
+  const musicScene: MusicScene =
+    phase === "round" || phase === "reveal" ? "gameplay" : "lobby";
+  const musicUrgent = Boolean(
+    phase === "round" && !me?.answered && secondsLeft > 0 && secondsLeft <= 5,
+  );
   const isHost = Boolean(room && room.hostId === room.you);
   const retryAction = !room
     ? tab
@@ -505,6 +518,10 @@ export default function PartyGame({
     const timer = window.setInterval(() => setNow(Date.now()), 200);
     return () => window.clearInterval(timer);
   }, [phase]);
+
+  useEffect(() => {
+    onMusicStateChange?.(musicScene, musicUrgent);
+  }, [onMusicStateChange, musicScene, musicUrgent]);
 
   async function enter(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -901,11 +918,6 @@ export default function PartyGame({
       </main>
     );
 
-  const me = room.players.find((player) => player.id === room.you);
-  const secondsLeft =
-    room.deadline === null
-      ? 0
-      : Math.max(0, Math.ceil((room.deadline - (now + clockOffset)) / 1_000));
   const revealed = phase === "reveal" || phase === "finished";
   const locked = Boolean(
     me?.answered || busy || phase !== "round" || secondsLeft === 0,

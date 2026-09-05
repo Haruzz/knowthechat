@@ -8,6 +8,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
+import { useMusic } from "./music";
 import {
   playAnswerSound,
   playStreakSound,
@@ -20,9 +21,12 @@ vi.mock("./audio", () => ({
   playStreakSound: vi.fn(),
   stopAudio: vi.fn(),
 }));
+vi.mock("./music", () => ({ useMusic: vi.fn() }));
+const musicPlayback = { prepare: vi.fn(), duck: vi.fn() };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(useMusic).mockReturnValue(musicPlayback);
   localStorage.clear();
   sessionStorage.clear();
   window.history.replaceState({}, "", "/");
@@ -84,6 +88,130 @@ function correctChoice() {
 }
 
 describe("Who Said It frontend", () => {
+  it("starts music off and remembers music and volume independently from sound effects across modes", () => {
+    render(<App />);
+    expect(
+      screen
+        .getByRole("button", { name: "Music" })
+        .getAttribute("aria-pressed"),
+    ).toBe("false");
+    expect(screen.queryByRole("slider", { name: "Music volume" })).toBeNull();
+    expect(useMusic).toHaveBeenLastCalledWith({
+      enabled: false,
+      volume: 0.35,
+      scene: "lobby",
+      urgent: false,
+    });
+    expect(musicPlayback.prepare).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Music" }));
+    expect(musicPlayback.prepare).toHaveBeenCalledOnce();
+    fireEvent.change(screen.getByRole("slider", { name: "Music volume" }), {
+      target: { value: "12" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sound effects" }));
+    expect(useMusic).toHaveBeenLastCalledWith({
+      enabled: true,
+      volume: 0.12,
+      scene: "lobby",
+      urgent: false,
+    });
+    expect(localStorage.getItem("knowthechat-music")).toBe("true");
+    expect(localStorage.getItem("knowthechat-music-volume")).toBe("0.12");
+    expect(localStorage.getItem("knowthechat-sound")).toBe("false");
+
+    fireEvent.click(screen.getByRole("button", { name: /play with friends/i }));
+    expect(
+      screen
+        .getByRole("button", { name: "Music" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(
+      (screen.getByRole("slider", { name: "Music volume" }) as HTMLInputElement)
+        .value,
+    ).toBe("12");
+    fireEvent.click(screen.getByRole("button", { name: "Music" }));
+    expect(localStorage.getItem("knowthechat-music")).toBe("false");
+    expect(
+      screen
+        .getByRole("button", { name: "Sound effects" })
+        .getAttribute("aria-pressed"),
+    ).toBe("false");
+
+    cleanup();
+    render(<App />);
+    expect(
+      screen
+        .getByRole("button", { name: "Music" })
+        .getAttribute("aria-pressed"),
+    ).toBe("false");
+    fireEvent.click(screen.getByRole("button", { name: "Music" }));
+    expect(
+      (screen.getByRole("slider", { name: "Music volume" }) as HTMLInputElement)
+        .value,
+    ).toBe("12");
+  });
+
+  it.each(["", "loud", "-1", "2", "Infinity"])(
+    "ignores invalid saved music volume %j",
+    (value) => {
+      localStorage.setItem("knowthechat-music-volume", value);
+      localStorage.setItem("knowthechat-music", "unexpected");
+      render(<App />);
+      expect(useMusic).toHaveBeenLastCalledWith({
+        enabled: false,
+        volume: 0.35,
+        scene: "lobby",
+        urgent: false,
+      });
+    },
+  );
+
+  it("restores a saved zero volume without replacing it with the default", () => {
+    localStorage.setItem("knowthechat-music-volume", "0");
+    localStorage.setItem("knowthechat-music", "true");
+    render(<App />);
+    expect(useMusic).toHaveBeenLastCalledWith({
+      enabled: true,
+      volume: 0,
+      scene: "lobby",
+      urgent: false,
+    });
+    expect(musicPlayback.prepare).not.toHaveBeenCalled();
+  });
+
+  it("uses gameplay music during solo rounds and keeps the controls available on the results screen", async () => {
+    localStorage.setItem("knowthechat-music", "true");
+    await startGame(3);
+    expect(musicPlayback.prepare).toHaveBeenCalledOnce();
+    expect(useMusic).toHaveBeenLastCalledWith({
+      enabled: true,
+      volume: 0.35,
+      scene: "gameplay",
+      urgent: false,
+    });
+    for (let index = 0; index < 3; index++) {
+      fireEvent.click(correctChoice());
+      fireEvent.click(
+        screen.getByRole("button", { name: /next message|see results/i }),
+      );
+    }
+    expect(screen.getByRole("heading", { name: "3 / 3" })).toBeTruthy();
+    expect(useMusic).toHaveBeenLastCalledWith({
+      enabled: true,
+      volume: 0.35,
+      scene: "lobby",
+      urgent: false,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Music" }));
+    expect(useMusic).toHaveBeenLastCalledWith({
+      enabled: false,
+      volume: 0.35,
+      scene: "lobby",
+      urgent: false,
+    });
+  });
+
   it("ignores the old playground query in the normal game", () => {
     window.history.replaceState({}, "", "/?preview=streaks");
     render(<App />);
@@ -377,6 +505,8 @@ describe("Who Said It frontend", () => {
     }
     expect(vi.mocked(playStreakSound).mock.calls).toEqual([[5], [10], [15]]);
     expect(playAnswerSound).toHaveBeenCalledTimes(12);
+    expect(musicPlayback.duck).toHaveBeenCalledTimes(3);
+    expect(musicPlayback.duck).toHaveBeenLastCalledWith(1_800);
     expect(screen.getByText("Chat legend")).toBeTruthy();
   });
 
@@ -419,7 +549,7 @@ describe("Who Said It frontend", () => {
 
   it("persists sound and effects controls and allows effects to be disabled mid-streak", async () => {
     await startGame(6);
-    fireEvent.click(screen.getByRole("button", { name: "Sound" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sound effects" }));
     for (let count = 1; count <= 5; count++) {
       fireEvent.click(correctChoice());
       if (count < 5)
@@ -433,12 +563,13 @@ describe("Who Said It frontend", () => {
     expect(stopAudio).toHaveBeenCalledOnce();
     expect(playAnswerSound).not.toHaveBeenCalled();
     expect(playStreakSound).not.toHaveBeenCalled();
+    expect(musicPlayback.duck).not.toHaveBeenCalled();
     expect(localStorage.getItem("knowthechat-effects")).toBe("false");
     cleanup();
     render(<App />);
     expect(
       screen
-        .getByRole("button", { name: "Sound" })
+        .getByRole("button", { name: "Sound effects" })
         .getAttribute("aria-pressed"),
     ).toBe("false");
     expect(
@@ -454,10 +585,10 @@ describe("Who Said It frontend", () => {
       throw new Error("Storage unavailable");
     });
     await startGame(3);
-    fireEvent.click(screen.getByRole("button", { name: "Sound" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sound effects" }));
     expect(
       screen
-        .getByRole("button", { name: "Sound" })
+        .getByRole("button", { name: "Sound effects" })
         .getAttribute("aria-pressed"),
     ).toBe("false");
     fireEvent.click(correctChoice());

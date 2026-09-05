@@ -1,5 +1,6 @@
 .game-preferences {
   display: flex;
+  align-items: center;
   justify-content: center;
   flex-wrap: wrap;
   gap: 8px;
@@ -25,9 +26,41 @@
   color: #e0d5f5;
 }
 
-.game-preferences button:focus-visible {
+.game-preferences button:focus-visible,
+.game-music-volume input:focus-visible {
   outline: 3px solid #b7a5ff;
   outline-offset: 3px;
+}
+
+.game-music-preferences,
+.game-music-volume {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.game-music-preferences {
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.game-music-volume {
+  min-height: 32px;
+  color: #bab1cd;
+  font-size: 11px;
+}
+
+.game-music-volume input {
+  width: 80px;
+  min-height: 32px;
+  margin: 0;
+  accent-color: #b7a5ff;
+  cursor: pointer;
+}
+
+.game-music-volume-value {
+  min-width: 4ch;
+  font-variant-numeric: tabular-nums;
 }
 
 .game-context .game-preferences {
@@ -197,6 +230,18 @@
 }
 
 @media (max-width: 600px) {
+  .game-preferences button,
+  .game-context .game-preferences button {
+    min-height: 40px;
+    padding: 7px 11px;
+    font-size: 11px;
+  }
+
+  .game-music-volume,
+  .game-music-volume input {
+    min-height: 40px;
+  }
+
   .streak-flame {
     opacity: 0.35;
   }

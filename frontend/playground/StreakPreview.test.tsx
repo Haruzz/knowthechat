@@ -8,6 +8,11 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import StreakPreview from "./StreakPreview";
 import { playAnswerSound, playStreakSound, stopAudio } from "../src/audio";
+import { useMusic } from "../src/music";
+const music = vi.hoisted(() => ({ prepare: vi.fn(), duck: vi.fn() }));
+vi.mock("../src/music", () => ({
+  useMusic: vi.fn(() => music),
+}));
 vi.mock("../src/audio", () => ({
   prepareAudio: vi.fn(),
   playAnswerSound: vi.fn(),
@@ -21,6 +26,96 @@ afterEach(() => {
 });
 
 describe("local streak playground", () => {
+  it("starts music off and auditions lobby, gameplay and final seconds locally", () => {
+    render(<StreakPreview />);
+    expect(useMusic).toHaveBeenLastCalledWith({
+      enabled: false,
+      volume: 0.35,
+      scene: "lobby",
+      urgent: false,
+    });
+    expect(music.prepare).not.toHaveBeenCalled();
+    expect(
+      screen
+        .getByRole("button", { name: "Music" })
+        .getAttribute("aria-pressed"),
+    ).toBe("false");
+
+    fireEvent.click(screen.getByRole("button", { name: "Music" }));
+    expect(music.prepare).toHaveBeenCalledOnce();
+    expect(useMusic).toHaveBeenLastCalledWith({
+      enabled: true,
+      volume: 0.35,
+      scene: "lobby",
+      urgent: false,
+    });
+
+    fireEvent.change(screen.getByRole("slider", { name: "Music volume" }), {
+      target: { value: "60" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Gameplay" }));
+    expect(useMusic).toHaveBeenLastCalledWith({
+      enabled: true,
+      volume: 0.6,
+      scene: "gameplay",
+      urgent: false,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Final seconds" }));
+    expect(useMusic).toHaveBeenLastCalledWith({
+      enabled: true,
+      volume: 0.6,
+      scene: "gameplay",
+      urgent: true,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Lobby" }));
+    expect(useMusic).toHaveBeenLastCalledWith({
+      enabled: true,
+      volume: 0.6,
+      scene: "lobby",
+      urgent: false,
+    });
+    expect(
+      screen
+        .getByRole("button", { name: "Lobby" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Music" }));
+    expect(useMusic).toHaveBeenLastCalledWith({
+      enabled: false,
+      volume: 0.6,
+      scene: "lobby",
+      urgent: false,
+    });
+  });
+
+  it("ducks music only when a milestone jingle is audible", () => {
+    render(<StreakPreview />);
+    fireEvent.click(screen.getByRole("button", { name: "Music" }));
+    fireEvent.click(screen.getByRole("button", { name: "5 · On fire" }));
+    expect(music.duck).toHaveBeenCalledOnce();
+    expect(playStreakSound).toHaveBeenCalledExactlyOnceWith(5);
+
+    fireEvent.click(screen.getByRole("button", { name: "Correct guess +1" }));
+    expect(playAnswerSound).toHaveBeenCalledExactlyOnceWith(true);
+    expect(music.duck).toHaveBeenCalledOnce();
+
+    fireEvent.click(screen.getByRole("button", { name: "Sound effects" }));
+    fireEvent.click(screen.getByRole("button", { name: "10 · Unstoppable" }));
+    expect(music.duck).toHaveBeenCalledOnce();
+    expect(playStreakSound).toHaveBeenCalledOnce();
+    expect(useMusic).toHaveBeenLastCalledWith({
+      enabled: true,
+      volume: 0.35,
+      scene: "lobby",
+      urgent: false,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Sound effects" }));
+    fireEvent.click(screen.getByRole("button", { name: "15 · Chat legend" }));
+    expect(music.duck).toHaveBeenCalledTimes(2);
+  });
+
   it("previews all tiers and restarts the celebration and dismissal timer on replay", async () => {
     vi.useFakeTimers();
     const { container } = render(<StreakPreview />);
@@ -77,7 +172,7 @@ describe("local streak playground", () => {
     fireEvent.click(screen.getByRole("button", { name: "Visual effects" }));
     fireEvent.click(screen.getByRole("button", { name: "5 · On fire" }));
     expect(playStreakSound).toHaveBeenCalledExactlyOnceWith(5);
-    fireEvent.click(screen.getByRole("button", { name: "Sound" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sound effects" }));
     expect(stopAudio).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "10 · Unstoppable" }));
     fireEvent.click(screen.getByRole("button", { name: "Correct guess +1" }));
@@ -86,7 +181,7 @@ describe("local streak playground", () => {
     );
     expect(playStreakSound).toHaveBeenCalledOnce();
     expect(playAnswerSound).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Sound" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sound effects" }));
     fireEvent.click(screen.getByRole("button", { name: "15 · Chat legend" }));
     expect(playStreakSound).toHaveBeenLastCalledWith(15);
     expect(document.querySelector(".streak-fire")).toBeNull();

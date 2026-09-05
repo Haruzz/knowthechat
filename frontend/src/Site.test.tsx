@@ -77,7 +77,9 @@ describe("site routing", () => {
     render(<Site />);
 
     expect(
-      screen.getByText(/sound and visual-effects preferences/),
+      screen.getByText(
+        /music, music volume, sound-effect and visual-effects preferences/,
+      ),
     ).toBeTruthy();
     const session = screen.getByText(
       /A multiplayer room code and session token/,

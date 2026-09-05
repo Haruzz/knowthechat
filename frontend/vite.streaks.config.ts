@@ -11,7 +11,7 @@ export default defineConfig(({ command }) => {
   }
   return {
     root: fileURLToPath(new URL("./playground", import.meta.url)),
-    publicDir: false,
+    publicDir: fileURLToPath(new URL("./public", import.meta.url)),
     plugins: [react()],
     server: {
       host: "127.0.0.1",

@@ -9,6 +9,7 @@ import {
 
 import StreakEffects, { GamePreferences } from "./StreakEffects";
 import PartyGame from "./PartyGame";
+import { useMusic, type MusicScene } from "./music";
 import {
   playAnswerSound,
   playStreakSound,
@@ -61,15 +62,27 @@ function readSeenHistory(channel: string): string[] {
   }
 }
 
-function readPreference(key: string): boolean {
+function readPreference(key: string, fallback = true): boolean {
   try {
-    return localStorage.getItem(`knowthechat-${key}`) !== "false";
+    const stored = localStorage.getItem(`knowthechat-${key}`);
+    return stored === "true" ? true : stored === "false" ? false : fallback;
   } catch {
-    return true;
+    return fallback;
   }
 }
 
-function savePreference(key: string, value: boolean) {
+function readMusicVolume(): number {
+  try {
+    const stored = localStorage.getItem("knowthechat-music-volume");
+    const volume = stored?.trim() ? Number(stored) : NaN;
+    if (Number.isFinite(volume) && volume >= 0 && volume <= 1) return volume;
+  } catch {
+    /* Use a quiet starting volume when browser storage is unavailable. */
+  }
+  return 0.35;
+}
+
+function savePreference(key: string, value: boolean | number) {
   try {
     localStorage.setItem(`knowthechat-${key}`, String(value));
   } catch {
@@ -305,21 +318,48 @@ export default function App() {
   const [effectsEnabled, setEffectsEnabled] = useState(() =>
     readPreference("effects"),
   );
+  const [musicEnabled, setMusicEnabled] = useState(() =>
+    readPreference("music", false),
+  );
+  const [musicVolume, setMusicVolume] = useState(readMusicVolume);
+  const [partyMusic, setPartyMusic] = useState<{
+    scene: MusicScene;
+    urgent: boolean;
+  }>({ scene: "lobby", urgent: false });
   const answerLock = useRef(false);
   const current = rounds[index];
+  const { prepare: prepareMusic, duck: duckMusic } = useMusic({
+    enabled: musicEnabled,
+    volume: musicVolume,
+    scene: playWithFriends
+      ? partyMusic.scene
+      : current && !loading
+        ? "gameplay"
+        : "lobby",
+    urgent: playWithFriends && partyMusic.urgent,
+  });
+  const updatePartyMusic = useCallback((scene: MusicScene, urgent: boolean) => {
+    setPartyMusic((previous) =>
+      previous.scene === scene && previous.urgent === urgent
+        ? previous
+        : { scene, urgent },
+    );
+  }, []);
   const prepareGameAudio = useCallback(() => {
     if (soundEnabled) prepareAudio();
-  }, [soundEnabled]);
+    if (musicEnabled) prepareMusic();
+  }, [soundEnabled, musicEnabled, prepareMusic]);
   const answerSound = useCallback(
     (wasCorrect: boolean, nextStreak: number) => {
       if (!soundEnabled) return;
       if (wasCorrect && nextStreak > 0 && nextStreak % 5 === 0) {
+        duckMusic(1_800);
         playStreakSound(nextStreak);
       } else {
         playAnswerSound(wasCorrect);
       }
     },
-    [soundEnabled],
+    [soundEnabled, duckMusic],
   );
 
   const answer = useCallback(
@@ -530,6 +570,19 @@ export default function App() {
     <GamePreferences
       soundEnabled={soundEnabled}
       effectsEnabled={effectsEnabled}
+      musicEnabled={musicEnabled}
+      musicVolume={musicVolume}
+      onMusicChange={() => {
+        if (!musicEnabled) prepareMusic();
+        savePreference("music", !musicEnabled);
+        setMusicEnabled(!musicEnabled);
+      }}
+      onMusicVolumeChange={(volume) => {
+        if (!Number.isFinite(volume)) return;
+        const nextVolume = Math.min(1, Math.max(0, volume));
+        savePreference("music-volume", nextVolume);
+        setMusicVolume(nextVolume);
+      }}
       onSoundChange={() => {
         if (soundEnabled) stopAudio();
         else prepareAudio();
@@ -576,6 +629,7 @@ export default function App() {
         preferences={preferences}
         onRoundRevealed={answerSound}
         onInteraction={prepareGameAudio}
+        onMusicStateChange={updatePartyMusic}
       />
     );
 
@@ -622,6 +676,7 @@ export default function App() {
             <span>{loadingProgress}%</span>
             <span>Messages → chatters → clues → emotes</span>
           </div>
+          {preferences}
         </section>
         <ProjectLinks />
       </main>
@@ -649,6 +704,7 @@ export default function App() {
           <button className="launch" onClick={reset}>
             Try another channel
           </button>
+          {preferences}
         </section>
         <ProjectLinks />
       </main>
