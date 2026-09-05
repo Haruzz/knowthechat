@@ -12,11 +12,13 @@ import PartyGame from "./PartyGame";
 import GameChannel from "./GameChannel";
 import { useMusic, type MusicScene } from "./music";
 import {
+  playApplause,
   playAnswerSound,
   playCountdownTick,
   playStreakSound,
   prepareAudio,
   stopAudio,
+  stopApplause,
 } from "./audio";
 import "./AppModes.css";
 
@@ -226,6 +228,14 @@ function ProjectLinks() {
       <a className="project-link privacy-link" href="/privacy">
         Privacy
       </a>
+      <a
+        className="project-link"
+        href="/audio-credits"
+        target="_blank"
+        rel="noreferrer"
+      >
+        Audio credits
+      </a>
     </nav>
   );
 }
@@ -373,6 +383,10 @@ export default function App() {
     },
     [soundEnabled],
   );
+  const celebrateGameFinished = useCallback(() => {
+    if (soundEnabled) playApplause();
+  }, [soundEnabled]);
+  useEffect(() => () => stopApplause(), []);
 
   const answer = useCallback(
     (name: string) => {
@@ -406,7 +420,8 @@ export default function App() {
     answerLock.current = false;
     setAnswered(null);
     setIndex((value) => value + 1);
-  }, [answered]);
+    if (index + 1 >= rounds.length) celebrateGameFinished();
+  }, [answered, index, rounds.length, celebrateGameFinished]);
 
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
@@ -470,6 +485,7 @@ export default function App() {
 
   async function load(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
+    stopApplause();
     prepareGameAudio();
     setLoading(true);
     setLoadingProgress(4);
@@ -568,6 +584,7 @@ export default function App() {
     }
   }
   function reset() {
+    stopApplause();
     setRounds([]);
     setIndex(0);
     setAnswered(null);
@@ -643,6 +660,8 @@ export default function App() {
         onInteraction={prepareGameAudio}
         onMusicStateChange={updatePartyMusic}
         onCountdownTick={countdownTick}
+        onGameFinished={celebrateGameFinished}
+        onGameRestarted={stopApplause}
       />
     );
 

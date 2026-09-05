@@ -41,10 +41,13 @@ class MockAudioContext {
   oscillators: MockOscillator[] = [];
   sources: MockBufferSource[] = [];
   gains: MockGain[] = [];
-  decodeAudioData = vi.fn(async (bytes: ArrayBuffer) => ({
-    sound: new Uint8Array(bytes)[0] === 1 ? "tick" : "tock",
-    duration: 0.24,
-  }));
+  decodeAudioData = vi.fn(async (bytes: ArrayBuffer) => {
+    const sample = new Uint8Array(bytes)[0];
+    return {
+      sound: sample === 1 ? "tick" : sample === 2 ? "tock" : "applause",
+      duration: sample === 3 ? 7.645 : 0.24,
+    };
+  });
   resume = vi.fn(async () => {
     this.state = "running";
   });
@@ -80,12 +83,22 @@ beforeEach(() => {
     "fetch",
     vi.fn(
       async (input: string) =>
-        new Response(new Uint8Array([input.endsWith("-tick.wav") ? 1 : 2])),
+        new Response(
+          new Uint8Array([
+            input.endsWith("-tick.wav")
+              ? 1
+              : input.endsWith("-tock.wav")
+                ? 2
+                : 3,
+          ]),
+        ),
     ),
   );
 });
 
-afterEach(() => {
+afterEach(async () => {
+  const { stopAudio } = await import("./audio");
+  stopAudio();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -113,8 +126,8 @@ describe("game audio", () => {
       );
     }
     await prepareAudio();
-    expect(fetch).toHaveBeenCalledTimes(2);
-    expect(audio.decodeAudioData).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(audio.decodeAudioData).toHaveBeenCalledTimes(3);
     for (const second of [0, 6, -1, NaN, 2.5]) playCountdownTick(second);
     vi.spyOn(document, "hidden", "get").mockReturnValue(true);
     playCountdownTick(3);
@@ -182,7 +195,7 @@ describe("game audio", () => {
         vi.mocked(fetch).mockRejectedValue(new Error("Offline"));
       if (failure === "oversized")
         vi.mocked(fetch).mockImplementation(
-          async () => new Response(new Uint8Array(129 * 1_024)),
+          async () => new Response(new Uint8Array(1_024 * 1_024 + 1)),
         );
       const { prepareAudio, playCountdownTick } = await import("./audio");
       const ready = prepareAudio();
@@ -198,7 +211,7 @@ describe("game audio", () => {
       await prepareAudio();
       playCountdownTick(5);
       expect(audio.sources).toHaveLength(0);
-      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(fetch).toHaveBeenCalledTimes(3);
       if (failure === "oversized")
         expect(audio.decodeAudioData).not.toHaveBeenCalled();
     },
@@ -218,6 +231,168 @@ describe("game audio", () => {
     expect(audio.gains[0].disconnect).toHaveBeenCalledOnce();
     playCountdownTick(4);
     expect(audio.sources[0].buffer?.sound).toBe("tock");
+  });
+
+  it("preloads applause once and overlays final answer and streak sounds independently", async () => {
+    const {
+      prepareAudio,
+      playApplause,
+      stopApplause,
+      playAnswerSound,
+      playStreakSound,
+    } = await import("./audio");
+    await Promise.all([prepareAudio(), prepareAudio()]);
+    const audio = MockAudioContext.instances[0];
+    playAnswerSound(true);
+    const answer = [...audio.oscillators];
+    playApplause();
+    const applause = audio.sources[0];
+    expect(applause.buffer?.sound).toBe("applause");
+    expect(applause.start).toHaveBeenCalledWith(5);
+    expect(applause.stop.mock.calls[0][0]).toBeCloseTo(12.655);
+    expect(
+      audio.gains.at(-1)?.gain.linearRampToValueAtTime,
+    ).toHaveBeenCalledWith(0.45, 5.02);
+    for (const tone of answer) expect(tone.disconnect).not.toHaveBeenCalled();
+    playStreakSound(5);
+    expect(applause.disconnect).not.toHaveBeenCalled();
+    const streak = audio.oscillators.slice(answer.length);
+    stopApplause();
+    expect(applause.disconnect).toHaveBeenCalledOnce();
+    for (const tone of streak) expect(tone.disconnect).not.toHaveBeenCalled();
+    await prepareAudio();
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.filter(([url]) => String(url).endsWith("applause.mp3")),
+    ).toHaveLength(1);
+  });
+
+  it("bounds applause to one voice, stops all SFX on mute, and releases natural completions", async () => {
+    const { prepareAudio, playApplause, stopAudio, playStreakSound } =
+      await import("./audio");
+    await prepareAudio();
+    const audio = MockAudioContext.instances[0];
+    playApplause();
+    const first = audio.sources[0];
+    playApplause();
+    expect(first.stop).toHaveBeenCalledTimes(2);
+    expect(first.disconnect).toHaveBeenCalledOnce();
+    playStreakSound(15);
+    stopAudio();
+    expect(audio.sources[1].disconnect).toHaveBeenCalledOnce();
+    for (const tone of audio.oscillators)
+      expect(tone.disconnect).toHaveBeenCalledOnce();
+    playApplause();
+    const finished = audio.sources.at(-1)!;
+    finished.onended?.();
+    expect(finished.onended).toBeNull();
+    expect(finished.disconnect).toHaveBeenCalledOnce();
+    expect(audio.gains.at(-1)?.disconnect).toHaveBeenCalledOnce();
+  });
+
+  it("never queues applause requested before preparation, loading, or playback permission", async () => {
+    const pending = new Map<string, (response: Response) => void>();
+    vi.mocked(fetch).mockImplementation(
+      (input) =>
+        new Promise<Response>((resolve) => pending.set(String(input), resolve)),
+    );
+    const { prepareAudio, playApplause, stopApplause } =
+      await import("./audio");
+    playApplause();
+    expect(MockAudioContext.instances).toHaveLength(0);
+    const ready = prepareAudio();
+    const audio = MockAudioContext.instances[0];
+    playApplause();
+    stopApplause();
+    for (const [path, resolve] of pending)
+      resolve(
+        new Response(new Uint8Array([path.endsWith("applause.mp3") ? 3 : 1])),
+      );
+    await ready;
+    expect(audio.sources).toHaveLength(0);
+    audio.state = "suspended";
+    playApplause();
+    expect(audio.resume).not.toHaveBeenCalled();
+    audio.state = "running";
+    expect(audio.sources).toHaveLength(0);
+    playApplause();
+    expect(audio.sources).toHaveLength(1);
+  });
+
+  it("stops applause when the page is hidden or left and never resumes it automatically", async () => {
+    const { prepareAudio, playApplause } = await import("./audio");
+    await prepareAudio();
+    const audio = MockAudioContext.instances[0];
+    vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    playApplause();
+    expect(audio.sources).toHaveLength(0);
+    vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    playApplause();
+    vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(audio.sources[0].disconnect).toHaveBeenCalledOnce();
+    vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(audio.sources).toHaveLength(1);
+    playApplause();
+    window.dispatchEvent(new Event("pagehide"));
+    expect(audio.sources[1].disconnect).toHaveBeenCalledOnce();
+  });
+
+  it.each(["fetch", "decode", "oversized", "too long"])(
+    "isolates an applause %s failure from clock playback without repeated downloads",
+    async (failure) => {
+      const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+      vi.mocked(fetch).mockImplementation((input, init) => {
+        if (String(input).endsWith("applause.mp3")) {
+          if (failure === "fetch") return Promise.reject(new Error("Offline"));
+          if (failure === "oversized")
+            return Promise.resolve(
+              new Response(new Uint8Array(1_024 * 1_024 + 1)),
+            );
+        }
+        return originalFetch(input, init);
+      });
+      const { prepareAudio, playApplause, playCountdownTick } =
+        await import("./audio");
+      const ready = prepareAudio();
+      const audio = MockAudioContext.instances[0];
+      const decode = audio.decodeAudioData.getMockImplementation()!;
+      audio.decodeAudioData.mockImplementation(async (bytes) => {
+        const buffer = await decode(bytes);
+        if (buffer.sound === "applause") {
+          if (failure === "decode") throw new Error("Unsupported format");
+          if (failure === "too long") return { ...buffer, duration: 12.01 };
+        }
+        return buffer;
+      });
+      await expect(ready).resolves.toBeUndefined();
+      await prepareAudio();
+      playApplause();
+      expect(audio.sources).toHaveLength(0);
+      playCountdownTick(5);
+      expect(audio.sources[0].buffer?.sound).toBe("tick");
+      expect(fetch).toHaveBeenCalledTimes(3);
+      if (failure === "oversized")
+        expect(audio.decodeAudioData).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it("keeps applause available even if the independent clock recordings fail", async () => {
+    vi.mocked(fetch).mockImplementation(async (input) =>
+      String(input).endsWith("applause.mp3")
+        ? new Response(new Uint8Array([3]))
+        : new Response(null, { status: 404 }),
+    );
+    const { prepareAudio, playApplause, playCountdownTick } =
+      await import("./audio");
+    await prepareAudio();
+    playCountdownTick(5);
+    const audio = MockAudioContext.instances[0];
+    expect(audio.sources).toHaveLength(0);
+    playApplause();
+    expect(audio.sources[0].buffer?.sound).toBe("applause");
   });
 
   it("retries a pending unlock on a fresh gesture without replaying old countdown cues", async () => {

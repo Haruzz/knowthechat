@@ -1,6 +1,7 @@
 # Music credits
 
-The music credits are followed by the separate countdown sound-effect credits.
+The music credits are followed by the separate countdown and applause sound-effect
+credits.
 
 Music by **Abstraction**, published by Tallbeard Studios in the
 [FREE Music Loop Bundle](https://tallbeard.itch.io/music-loop-bundle).
@@ -120,3 +121,49 @@ The sound-effect files are served locally with the frontend.
 | Original clock WAV   | `f7bffc8e48d7e4fb93e6227e227921d98ab2ecfece733dbd77270bc5fc8e6779` |
 | `countdown-tick.wav` | `ca62b0ab4d1bf38a41d7c0d2a4b84f0aa0f8548d808b185ff1c932770455fe57` |
 | `countdown-tock.wav` | `008f51b0be7b482f7f0bdd8f2a206fec166a00d1b96e9d03512a5057d59b3a42` |
+
+## Applause
+
+`applause.mp3` adapts **[Applause](https://opengameart.org/content/applause)** by
+**Blender Foundation**, with the applause excerpt edited and submitted by
+**[LeeZH](https://opengameart.org/users/leezh)**. LeeZH removed the brass-band
+section from **[Success Trumpets and Claps (Yo Frankie!)](https://opengameart.org/content/endgame)**,
+Blender Foundation's end-game sound from **[Yo Frankie!](https://apricot.blender.org/)**
+(submitted to OpenGameArt by Lamoot).
+
+Both source pages identify the license as **Creative Commons Attribution 3.0
+Unported (CC BY 3.0)**. This permits use, modification and redistribution with
+attribution. The applause retains this license independently of the application's
+code license. Its license is different from the CC0 music and clock recordings
+above. Source and license were checked on September 6, 2026.
+
+- [Original applause WAV download](https://opengameart.org/sites/default/files/applause.wav)
+- [CC BY 3.0 license summary](https://creativecommons.org/licenses/by/3.0/)
+- [Complete included license](LICENSE-CC-BY-3.0.txt)
+- [Official legal-text source](https://creativecommons.org/licenses/by/3.0/legalcode.txt)
+
+For Know The Chat, the complete **366,967 stereo frames at 48,000 Hz** were
+retained, lasting **7.645145833 seconds**. Changes are a **20 ms opening fade**,
+a **150 ms closing fade**, gain of **1.0238994372937829** to normalize the sample
+peak to **-2 dBFS**, and conversion from PCM16 WAV to variable-bitrate MP3 using
+`soundfile 0.13.1` / `libsndfile 1.2.2` at compression level `0.45`. No passages
+were cut, repeated, rearranged or changed in pitch or speed. The resulting MP3
+is **201,480 bytes**; its decoded peak is **0.7890333**, without clipping.
+Encoder delay/padding metadata preserves the original frame count when decoded
+with libsndfile. The game serves this asset locally with the frontend.
+
+To regenerate only the applause:
+
+```bash
+uv run scripts/prepare-applause.py
+```
+
+The optional script uses isolated, pinned dependencies, bounds the original
+download to 4 MiB, verifies its SHA-256 before decoding and checks the encoded
+duration and peak before replacing the asset. Ordinary game builds use the
+included MP3 and do not run this script.
+
+| File                  | SHA-256                                                            |
+| --------------------- | ------------------------------------------------------------------ |
+| Original applause WAV | `d8d44ae50a16ba4218c1861c8fa236c481c2caf56195883edc81f89919fb6958` |
+| `applause.mp3`        | `1bb5eb55d62beb04493334856d708629194c01911675bd69d92508433aaad5a9` |

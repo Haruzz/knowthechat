@@ -269,6 +269,8 @@ export default function PartyGame({
   onInteraction,
   onMusicStateChange,
   onCountdownTick,
+  onGameFinished,
+  onGameRestarted,
 }: {
   onBack: () => void;
   effectsEnabled?: boolean;
@@ -277,6 +279,8 @@ export default function PartyGame({
   onInteraction?: () => void;
   onMusicStateChange?: (scene: MusicScene, urgent: boolean) => void;
   onCountdownTick?: (secondsLeft: number) => void;
+  onGameFinished?: () => void;
+  onGameRestarted?: () => void;
 }) {
   const [session, setSession] = useState<Session | null>(savedSession);
   const [room, setRoom] = useState<Room | null>(null);
@@ -306,6 +310,9 @@ export default function PartyGame({
   const backCallback = useRef(onBack);
   const latestRoom = useRef<Room | null>(null);
   const revealCallback = useRef(onRoundRevealed);
+  const completionCallback = useRef(onGameFinished);
+  const restartCallback = useRef(onGameRestarted);
+  const completionInterrupted = useRef(false);
   const previousView = useRef<{
     code: string;
     phase: Room["phase"];
@@ -392,12 +399,31 @@ export default function PartyGame({
 
   useEffect(() => {
     revealCallback.current = onRoundRevealed;
+    completionCallback.current = onGameFinished;
+    restartCallback.current = onGameRestarted;
     backCallback.current = onBack;
-  }, [onRoundRevealed, onBack]);
+  }, [onRoundRevealed, onGameFinished, onGameRestarted, onBack]);
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.hidden) completionInterrupted.current = true;
+    };
+    const onPageHide = () => {
+      completionInterrupted.current = true;
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", onPageHide);
+      restartCallback.current?.();
+    };
+  }, []);
 
   const finishLeave = useCallback(() => {
     if (!pendingLeave.current) return;
     pendingLeave.current = false;
+    restartCallback.current?.();
     operation.current?.abort();
     storeSession(null);
     setSession(null);
@@ -424,6 +450,12 @@ export default function PartyGame({
       latest?.code !== nextRoom.code || latest.you !== nextRoom.you;
     if (
       membershipChanged ||
+      (nextRoom.phase === "waiting" && latest?.phase !== "waiting") ||
+      (nextRoom.phase === "round" && latest?.round?.id !== nextRoom.round?.id)
+    )
+      restartCallback.current?.();
+    if (
+      membershipChanged ||
       (latest?.phase === "finished" && nextRoom.phase === "waiting")
     ) {
       setCooldowns((current) => {
@@ -447,6 +479,8 @@ export default function PartyGame({
       (member) => member.id === nextRoom.you,
     );
     const previous = previousView.current;
+    const interrupted = completionInterrupted.current;
+    completionInterrupted.current = document.hidden;
     const newlyRevealed =
       previous?.code === nextRoom.code &&
       previous.phase === "round" &&
@@ -469,6 +503,13 @@ export default function PartyGame({
         player.choice === nextRoom.round?.author,
         player.streak,
       );
+      if (
+        nextRoom.roundNumber === nextRoom.totalRounds &&
+        !interrupted &&
+        !document.hidden &&
+        !pendingLeave.current
+      )
+        completionCallback.current?.();
     }
   }, []);
 
@@ -493,6 +534,7 @@ export default function PartyGame({
       onRoom: acceptRoom,
       parseRoom,
       onProblem: (problem) => {
+        completionInterrupted.current = true;
         if (
           problem instanceof RoomError &&
           [401, 403, 404, 410].includes(problem.status)
@@ -502,6 +544,7 @@ export default function PartyGame({
             return true;
           }
           operation.current?.abort();
+          restartCallback.current?.();
           storeSession(null);
           setSession(null);
           setRoom(null);
@@ -555,6 +598,7 @@ export default function PartyGame({
     )
       return;
     onInteraction?.();
+    restartCallback.current?.();
     actionPending.current = true;
     operation.current?.abort();
     const controller = new AbortController();
@@ -617,6 +661,8 @@ export default function PartyGame({
       )
         return;
       onInteraction?.();
+      if (action === "start" || action === "rematch" || action === "leave")
+        restartCallback.current?.();
       actionPending.current = true;
       pendingLeave.current = action === "leave";
       operation.current?.abort();
@@ -644,6 +690,7 @@ export default function PartyGame({
             problem instanceof RoomError &&
             [401, 404, 410].includes(problem.status)
           ) {
+            restartCallback.current?.();
             storeSession(null);
             setSession(null);
             setRoom(null);
@@ -1246,7 +1293,15 @@ export default function PartyGame({
         )}
       </div>
       <footer className="party-footer">
-        1,000 for accuracy. Up to 500 for speed. Bragging rights forever.
+        1,000 for accuracy. Up to 500 for speed. Bragging rights forever.{" "}
+        <a
+          className="underline"
+          href="/audio-credits"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Audio credits
+        </a>
       </footer>
     </main>
   );

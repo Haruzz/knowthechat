@@ -107,6 +107,137 @@ afterEach(() => {
 });
 
 describe("live party snapshots", () => {
+  it("applauds only the last round's first reveal while preserving the last answer sound", () => {
+    const onGameFinished = vi.fn();
+    const onRoundRevealed = vi.fn();
+    const onGameRestarted = vi.fn();
+    render(
+      <PartyGame
+        onBack={vi.fn()}
+        onGameFinished={onGameFinished}
+        onGameRestarted={onGameRestarted}
+        onRoundRevealed={onRoundRevealed}
+      />,
+    );
+    const socket = FakeRoomSocket.instances[0];
+    act(() => socket.message({ type: "room", room: activeRoom() }));
+    act(() => socket.message({ type: "room", room: reveal() }));
+    expect(onGameFinished).not.toHaveBeenCalled();
+    const lastRound = {
+      ...activeRoom(),
+      revision: 5,
+      totalRounds: 6,
+      roundNumber: 6,
+    };
+    lastRound.round.id = "round-6";
+    act(() => socket.message({ type: "room", room: lastRound }));
+    const lastReveal = {
+      ...reveal(),
+      revision: 6,
+      totalRounds: 6,
+      roundNumber: 6,
+    };
+    lastReveal.round.id = "round-6";
+    act(() => socket.message({ type: "room", room: lastReveal }));
+    expect(onGameFinished).toHaveBeenCalledOnce();
+    expect(onRoundRevealed).toHaveBeenLastCalledWith(true, 5);
+    act(() => socket.message({ type: "room", room: lastReveal }));
+    act(() =>
+      socket.message({
+        type: "room",
+        room: { ...lastReveal, revision: 7, phase: "finished" },
+      }),
+    );
+    expect(onGameFinished).toHaveBeenCalledOnce();
+    onGameRestarted.mockClear();
+    act(() =>
+      socket.message({
+        type: "room",
+        room: {
+          ...lastRound,
+          revision: 8,
+          phase: "waiting",
+          round: null,
+          deadline: null,
+          roundNumber: 0,
+        },
+      }),
+    );
+    expect(onGameRestarted).toHaveBeenCalledOnce();
+    const credit = screen.getByRole("link", { name: "Audio credits" });
+    expect(credit.getAttribute("href")).toBe("/audio-credits");
+    expect(credit.getAttribute("target")).toBe("_blank");
+  });
+
+  it.each(["reveal", "finished"])(
+    "does not replay applause on restoring the final %s",
+    (phase) => {
+      const onGameFinished = vi.fn();
+      render(<PartyGame onBack={vi.fn()} onGameFinished={onGameFinished} />);
+      act(() =>
+        FakeRoomSocket.instances[0].message({
+          type: "room",
+          room: { ...reveal(), totalRounds: 5, phase },
+        }),
+      );
+      expect(onGameFinished).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["reconnect", "hidden tab"])(
+    "does not applaud an old final reveal after a %s gap",
+    async (gap) => {
+      const onGameFinished = vi.fn();
+      vi.spyOn(globalThis, "fetch").mockImplementation(
+        () => new Promise<Response>(() => {}),
+      );
+      render(<PartyGame onBack={vi.fn()} onGameFinished={onGameFinished} />);
+      act(() =>
+        FakeRoomSocket.instances[0].message({
+          type: "room",
+          room: { ...activeRoom(), totalRounds: 5 },
+        }),
+      );
+      if (gap === "reconnect") {
+        act(() => FakeRoomSocket.instances[0].disconnect());
+        await act(async () => vi.advanceTimersByTimeAsync(1_000));
+      } else {
+        vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+        vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+        act(() => document.dispatchEvent(new Event("visibilitychange")));
+        vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+        vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+        act(() => document.dispatchEvent(new Event("visibilitychange")));
+      }
+      act(() =>
+        FakeRoomSocket.instances
+          .at(-1)!
+          .message({ type: "room", room: { ...reveal(), totalRounds: 5 } }),
+      );
+      expect(onGameFinished).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["Play a rematch →", "Leave lobby"])(
+    "stops applause as soon as %s is requested",
+    (button) => {
+      const onGameRestarted = vi.fn();
+      vi.spyOn(globalThis, "fetch").mockImplementation(
+        () => new Promise<Response>(() => {}),
+      );
+      render(<PartyGame onBack={vi.fn()} onGameRestarted={onGameRestarted} />);
+      act(() =>
+        FakeRoomSocket.instances[0].message({
+          type: "room",
+          room: { ...reveal(), totalRounds: 5, phase: "finished" },
+        }),
+      );
+      onGameRestarted.mockClear();
+      fireEvent.click(screen.getByRole("button", { name: button }));
+      expect(onGameRestarted).toHaveBeenCalledOnce();
+    },
+  );
+
   it("matches the solo clue layout and streamer badge while keeping helper announcements out of the visible layout", () => {
     vi.mocked(useStreamerProfile).mockReturnValue({
       name: "ExampleStreamer",

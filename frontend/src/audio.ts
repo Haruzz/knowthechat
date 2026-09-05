@@ -13,6 +13,9 @@ type ClockSound = "tick" | "tock";
 const MAX_CLOCK_BYTES = 128 * 1_024;
 const clockBuffers = new Map<ClockSound, AudioBuffer>();
 let clockLoad: Promise<void> | null = null;
+let applauseBuffer: AudioBuffer | null = null;
+let applauseLoad: Promise<void> | null = null;
+let applauseVoice: Voice | null = null;
 
 let context: AudioContext | null = null;
 let resumeAttempt: Promise<void> | null = null;
@@ -22,6 +25,7 @@ const voices = new Set<Voice>();
 function getContext(): AudioContext | null {
   try {
     if (!context || context.state === "closed") {
+      stopApplause();
       if (typeof window.AudioContext !== "function") return null;
       context = new window.AudioContext();
       resumeAttempt = null;
@@ -44,17 +48,19 @@ function resume(audio: AudioContext, fromGesture = false): Promise<void> {
   return resumeAttempt;
 }
 
-async function loadClockBuffer(
+async function loadBuffer(
   audio: AudioContext,
-  sound: ClockSound,
-): Promise<void> {
+  path: string,
+  maxBytes: number,
+  maxDuration: number,
+): Promise<AudioBuffer | null> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 10_000);
   try {
-    const response = await fetch(`/audio/countdown-${sound}.wav`, {
+    const response = await fetch(path, {
       signal: controller.signal,
     });
-    if (!response.ok || !response.body) return;
+    if (!response.ok || !response.body) return null;
     const reader = response.body.getReader();
     const chunks: Uint8Array[] = [];
     let length = 0;
@@ -63,16 +69,16 @@ async function loadClockBuffer(
         const chunk = await reader.read();
         if (chunk.done) break;
         length += chunk.value.byteLength;
-        if (length > MAX_CLOCK_BYTES) {
+        if (length > maxBytes) {
           await reader.cancel();
-          return;
+          return null;
         }
         chunks.push(chunk.value);
       }
     } finally {
       reader.releaseLock();
     }
-    if (controller.signal.aborted || length === 0) return;
+    if (controller.signal.aborted || length === 0) return null;
     const bytes = new Uint8Array(length);
     let offset = 0;
     for (const chunk of chunks) {
@@ -83,14 +89,40 @@ async function loadClockBuffer(
     if (
       !controller.signal.aborted &&
       buffer.duration > 0 &&
-      buffer.duration <= 1
+      buffer.duration <= maxDuration
     )
-      clockBuffers.set(sound, buffer);
+      return buffer;
   } catch {
-    // Missing or undecodable clock assets must not interrupt gameplay.
+    // Missing or undecodable sound assets must not interrupt gameplay.
   } finally {
     window.clearTimeout(timeout);
   }
+  return null;
+}
+
+async function loadClockBuffer(
+  audio: AudioContext,
+  sound: ClockSound,
+): Promise<void> {
+  const buffer = await loadBuffer(
+    audio,
+    `/audio/countdown-${sound}.wav`,
+    MAX_CLOCK_BYTES,
+    1,
+  );
+  if (buffer) clockBuffers.set(sound, buffer);
+}
+
+function preloadApplause(audio: AudioContext): Promise<void> {
+  applauseLoad ??= loadBuffer(
+    audio,
+    "/audio/applause.mp3",
+    1_024 * 1_024,
+    12,
+  ).then((buffer) => {
+    applauseBuffer = buffer;
+  });
+  return applauseLoad;
 }
 
 function preloadClock(audio: AudioContext): Promise<void> {
@@ -108,7 +140,11 @@ export function prepareAudio(): Promise<void> {
   try {
     const audio = getContext();
     if (audio)
-      return Promise.all([resume(audio, true), preloadClock(audio)]).then(
+      return Promise.all([
+        resume(audio, true),
+        preloadClock(audio),
+        preloadApplause(audio),
+      ]).then(
         () => {},
         () => {},
       );
@@ -121,6 +157,11 @@ export function prepareAudio(): Promise<void> {
 function release(voice: Voice): void {
   voice.source.onended = null;
   voices.delete(voice);
+  if (applauseVoice === voice) {
+    applauseVoice = null;
+    document.removeEventListener("visibilitychange", onApplauseVisibility);
+    window.removeEventListener("pagehide", stopApplause);
+  }
   try {
     voice.source.disconnect();
   } catch {
@@ -149,6 +190,53 @@ function stopVoices(): void {
 export function stopAudio(): void {
   playbackRequest += 1;
   stopVoices();
+  stopApplause();
+}
+
+function onApplauseVisibility(): void {
+  if (document.hidden) stopApplause();
+}
+
+/** Stop celebration ambience without cutting off a guess or streak sound. */
+export function stopApplause(): void {
+  const voice = applauseVoice;
+  if (!voice) return;
+  try {
+    voice.source.stop();
+  } catch {
+    // The source or its audio device may already have stopped.
+  } finally {
+    release(voice);
+  }
+}
+
+/** Applause overlays answer/streak feedback and never waits for a download. */
+export function playApplause(): void {
+  const audio = context;
+  const buffer = applauseBuffer;
+  if (!audio || audio.state !== "running" || document.hidden || !buffer) return;
+  stopApplause();
+  try {
+    const source = audio.createBufferSource();
+    const gain = audio.createGain();
+    const voice = { source, gain };
+    applauseVoice = voice;
+    source.onended = () => release(voice);
+    source.buffer = buffer;
+    gain.gain.setValueAtTime(0, audio.currentTime);
+    gain.gain.linearRampToValueAtTime(
+      0.45,
+      audio.currentTime + Math.min(0.02, buffer.duration / 2),
+    );
+    source.connect(gain);
+    gain.connect(audio.destination);
+    document.addEventListener("visibilitychange", onApplauseVisibility);
+    window.addEventListener("pagehide", stopApplause);
+    source.start(audio.currentTime);
+    source.stop(audio.currentTime + buffer.duration + 0.01);
+  } catch {
+    stopApplause();
+  }
 }
 
 function play(tones: readonly Tone[]): void {

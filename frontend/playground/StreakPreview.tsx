@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from "react";
 
 import StreakEffects, { GamePreferences } from "../src/StreakEffects";
 import {
+  playApplause,
   playAnswerSound,
   playCountdownTick,
   playStreakSound,
   prepareAudio,
+  stopApplause,
   stopAudio,
 } from "../src/audio";
 import { useMusic } from "../src/music";
@@ -24,6 +26,7 @@ export default function StreakPreview() {
   } | null>(null);
   const [countdownNow, setCountdownNow] = useState(Date.now);
   const countdownSequence = useRef(0);
+  const applauseSequence = useRef(0);
   const countdownStartTimer = useRef<number | undefined>(undefined);
   const countdownSeconds = countdown
     ? Math.max(0, Math.ceil((countdown.deadline - countdownNow) / 1_000))
@@ -36,13 +39,14 @@ export default function StreakPreview() {
     playOnStart: true,
   });
   const [musicPreview, setMusicPreview] = useState<
-    "lobby" | "gameplay" | "urgent"
+    "lobby" | "gameplay" | "urgent" | "results"
   >("lobby");
   const music = useMusic({
     enabled: musicEnabled,
     volume: musicVolume,
     scene:
-      musicPreview === "urgent" && countdown && countdownSeconds === 0
+      musicPreview === "results" ||
+      (musicPreview === "urgent" && countdown && countdownSeconds === 0)
         ? "silent"
         : musicPreview === "lobby"
           ? "lobby"
@@ -55,10 +59,29 @@ export default function StreakPreview() {
   } | null>(null);
   const sequence = useRef(0);
 
+  function cancelApplause() {
+    applauseSequence.current += 1;
+    stopApplause();
+  }
   function cancelCountdown() {
+    cancelApplause();
     countdownSequence.current += 1;
     window.clearTimeout(countdownStartTimer.current);
     setCountdown(null);
+  }
+  function previewGameOver() {
+    cancelCountdown();
+    setCelebration(null);
+    setMusicPreview("results");
+    if (!soundEnabled) return;
+    const request = applauseSequence.current;
+    void prepareAudio().then(() => {
+      if (
+        request === applauseSequence.current &&
+        document.visibilityState === "visible"
+      )
+        playApplause();
+    });
   }
   function startCountdown() {
     cancelCountdown();
@@ -106,9 +129,16 @@ export default function StreakPreview() {
     setCelebration(null);
   }
   useEffect(() => {
+    const cancelPendingApplause = () => {
+      if (document.visibilityState === "hidden") applauseSequence.current += 1;
+    };
+    document.addEventListener("visibilitychange", cancelPendingApplause);
     return () => {
       countdownSequence.current += 1;
+      applauseSequence.current += 1;
+      stopApplause();
       window.clearTimeout(countdownStartTimer.current);
+      document.removeEventListener("visibilitychange", cancelPendingApplause);
     };
   }, []);
   useEffect(() => {
@@ -190,8 +220,10 @@ export default function StreakPreview() {
               setMusicVolume(volume);
             }}
             onSoundChange={() => {
-              if (soundEnabled) stopAudio();
-              else prepareAudio();
+              if (soundEnabled) {
+                cancelApplause();
+                stopAudio();
+              } else prepareAudio();
               setSoundEnabled(!soundEnabled);
             }}
             onEffectsChange={() => setEffectsEnabled(!effectsEnabled)}
@@ -238,6 +270,13 @@ export default function StreakPreview() {
             >
               Try 5-second countdown
             </button>
+            <button
+              type="button"
+              className="preview-secondary"
+              onClick={previewGameOver}
+            >
+              Game over · applause
+            </button>
             {countdown && (
               <span className="preview-countdown">
                 <output aria-label="Countdown seconds">
@@ -249,6 +288,10 @@ export default function StreakPreview() {
               </span>
             )}
           </div>
+          <p className="preview-note">
+            Game over plays the final-results applause with music silent. It
+            uses the SFX toggle, and you can replay it with the same button.
+          </p>
           <p className="preview-note">
             {soundEnabled
               ? "The countdown uses SFX. Try a guess or celebration to stop it early."

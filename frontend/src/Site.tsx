@@ -1,4 +1,5 @@
 import App from "./App";
+import AudioCreditsPage from "./AudioCreditsPage";
 import PrivacyPage from "./PrivacyPage";
 
 export function isPrivacyPath(pathname: string) {
@@ -6,5 +7,7 @@ export function isPrivacyPath(pathname: string) {
 }
 
 export default function Site() {
+  if (["/audio-credits", "/audio-credits/"].includes(window.location.pathname))
+    return <AudioCreditsPage />;
   return isPrivacyPath(window.location.pathname) ? <PrivacyPage /> : <App />;
 }

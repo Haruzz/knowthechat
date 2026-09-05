@@ -8,10 +8,12 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import StreakPreview from "./StreakPreview";
 import {
+  playApplause,
   playAnswerSound,
   playCountdownTick,
   playStreakSound,
   prepareAudio,
+  stopApplause,
   stopAudio,
 } from "../src/audio";
 import { useMusic } from "../src/music";
@@ -20,11 +22,13 @@ vi.mock("../src/music", () => ({
   useMusic: vi.fn(() => music),
 }));
 vi.mock("../src/audio", () => ({
-  prepareAudio: vi.fn(),
+  prepareAudio: vi.fn().mockResolvedValue(undefined),
+  playApplause: vi.fn(),
   playAnswerSound: vi.fn(),
   playCountdownTick: vi.fn(),
   playStreakSound: vi.fn(),
   stopAudio: vi.fn(),
+  stopApplause: vi.fn(),
 }));
 afterEach(() => {
   cleanup();
@@ -33,6 +37,63 @@ afterEach(() => {
 });
 
 describe("local streak playground", () => {
+  it("auditions game-over applause with music silent and respects SFX mute", async () => {
+    render(<StreakPreview />);
+    const button = screen.getByRole("button", { name: "Game over · applause" });
+    await act(async () => fireEvent.click(button));
+    expect(playApplause).toHaveBeenCalledOnce();
+    expect(useMusic).toHaveBeenLastCalledWith({
+      enabled: true,
+      volume: 0.35,
+      scene: "silent",
+      urgent: false,
+    });
+    await act(async () => fireEvent.click(button));
+    expect(playApplause).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByRole("button", { name: "Sound effects" }));
+    expect(stopAudio).toHaveBeenCalledOnce();
+    await act(async () => fireEvent.click(button));
+    expect(playApplause).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["Gameplay", "Correct guess +1", "Sound effects"])(
+    "cancels pending applause when clicking %s",
+    async (action) => {
+      let ready!: () => void;
+      vi.mocked(prepareAudio).mockReturnValueOnce(
+        new Promise<void>((resolve) => {
+          ready = resolve;
+        }),
+      );
+      render(<StreakPreview />);
+      fireEvent.click(
+        screen.getByRole("button", { name: "Game over · applause" }),
+      );
+      expect(playApplause).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: action }));
+      await act(async () => ready());
+      expect(playApplause).not.toHaveBeenCalled();
+      expect(stopApplause).toHaveBeenCalled();
+    },
+  );
+
+  it("cancels pending applause on unmount", async () => {
+    let ready!: () => void;
+    vi.mocked(prepareAudio).mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        ready = resolve;
+      }),
+    );
+    const { unmount } = render(<StreakPreview />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Game over · applause" }),
+    );
+    unmount();
+    await act(async () => ready());
+    expect(playApplause).not.toHaveBeenCalled();
+    expect(stopApplause).toHaveBeenCalled();
+  });
+
   it("waits for delayed audio readiness before starting the first countdown second", async () => {
     vi.useFakeTimers();
     let ready!: () => void;

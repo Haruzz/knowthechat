@@ -11,6 +11,31 @@ afterEach(() => {
 });
 
 describe("site routing", () => {
+  it.each(["/audio-credits", "/audio-credits/"])(
+    "provides public applause attribution at %s",
+    (path) => {
+      window.history.replaceState({}, "", path);
+      render(<Site />);
+      expect(
+        screen.getByRole("heading", { name: "Audio credits", level: 1 }),
+      ).toBeTruthy();
+      expect(screen.getByText("Blender Foundation")).toBeTruthy();
+      expect(screen.getByText(/edited by LeeZH/)).toBeTruthy();
+      expect(
+        screen.getByRole("link", { name: "Applause" }).getAttribute("href"),
+      ).toBe("https://opengameart.org/content/applause");
+      expect(
+        screen
+          .getByRole("link", { name: /Creative Commons Attribution/ })
+          .getAttribute("href"),
+      ).toBe("https://creativecommons.org/licenses/by/3.0/");
+      expect(
+        screen.getByText(/converted the complete applause recording to MP3/),
+      ).toBeTruthy();
+      expect(document.title).toBe("Audio credits | Know The Chat");
+    },
+  );
+
   it("discloses pseudonymous network rate limits separately from daily admission records", () => {
     window.history.replaceState({}, "", "/privacy");
     render(<Site />);

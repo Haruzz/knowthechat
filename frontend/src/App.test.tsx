@@ -11,18 +11,22 @@ import App from "./App";
 import * as PartyGameModule from "./PartyGame";
 import { useMusic } from "./music";
 import {
+  playApplause,
   playAnswerSound,
   playCountdownTick,
   playStreakSound,
   prepareAudio,
   stopAudio,
+  stopApplause,
 } from "./audio";
 vi.mock("./audio", () => ({
   prepareAudio: vi.fn(),
+  playApplause: vi.fn(),
   playAnswerSound: vi.fn(),
   playCountdownTick: vi.fn(),
   playStreakSound: vi.fn(),
   stopAudio: vi.fn(),
+  stopApplause: vi.fn(),
 }));
 vi.mock("./music", () => ({ useMusic: vi.fn() }));
 const musicPlayback = { prepare: vi.fn(), duck: vi.fn() };
@@ -39,7 +43,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function startGame(roundCount = 16) {
+async function startGame(roundCount = 16, gameLength?: "10" | "unlimited") {
   vi.spyOn(Math, "random").mockReturnValue(0.5);
   const chatters = ["Alice", "Bob", "Carol"].map((name, index) => ({
     id: String(index),
@@ -75,11 +79,17 @@ async function startGame(roundCount = 16) {
       ),
   );
   render(<App />);
+  if (gameLength)
+    fireEvent.change(screen.getByLabelText("Game length"), {
+      target: { value: gameLength },
+    });
   fireEvent.change(screen.getByLabelText("Twitch channel"), {
     target: { value: "Example" },
   });
   fireEvent.click(screen.getByRole("button", { name: /open the case/i }));
-  await screen.findByLabelText(`Question 1 of ${roundCount}, score 0 of 0`);
+  await screen.findByLabelText(
+    `Question 1 of ${gameLength === "10" ? Math.min(10, roundCount) : roundCount}, score 0 of 0`,
+  );
 }
 
 function correctChoice() {
@@ -91,6 +101,70 @@ function correctChoice() {
 }
 
 describe("Who Said It frontend", () => {
+  it.each([
+    [3, "unlimited", 3],
+    [12, "10", 10],
+  ] as const)(
+    "applauds once on results after %i available quotes in %s mode",
+    async (available, gameLength, played) => {
+      await startGame(available, gameLength);
+      for (let index = 0; index < played; index++) {
+        fireEvent.click(correctChoice());
+        expect(playApplause).not.toHaveBeenCalled();
+        fireEvent.click(
+          screen.getByRole("button", { name: /next message|see results/i }),
+        );
+      }
+      expect(
+        screen.getByRole("heading", { name: `${played} / ${played}` }),
+      ).toBeTruthy();
+      expect(playApplause).toHaveBeenCalledOnce();
+      expect(playAnswerSound).toHaveBeenCalled();
+      if (played === 10) expect(playStreakSound).toHaveBeenLastCalledWith(10);
+      fireEvent.keyDown(window, { key: "Enter" });
+      expect(playApplause).toHaveBeenCalledOnce();
+      vi.mocked(stopApplause).mockClear();
+      fireEvent.click(
+        screen.getByRole("button", { name: "Try another channel" }),
+      );
+      expect(stopApplause).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("does not applaud a solo result when sound effects are muted", async () => {
+    localStorage.setItem("knowthechat-sound", "false");
+    await startGame(3);
+    for (let index = 0; index < 3; index++) {
+      fireEvent.click(correctChoice());
+      fireEvent.click(
+        screen.getByRole("button", { name: /next message|see results/i }),
+      );
+    }
+    expect(playApplause).not.toHaveBeenCalled();
+  });
+
+  it("gates party applause with SFX and stops it for a game restart", () => {
+    vi.spyOn(PartyGameModule, "default").mockImplementation(
+      ({ preferences, onGameFinished, onGameRestarted }) => (
+        <>
+          {preferences}
+          <button onClick={onGameFinished}>Final leaderboard</button>
+          <button onClick={onGameRestarted}>Restart game</button>
+        </>
+      ),
+    );
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /play with friends/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Final leaderboard" }));
+    expect(playApplause).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Restart game" }));
+    expect(stopApplause).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Sound effects" }));
+    fireEvent.click(screen.getByRole("button", { name: "Final leaderboard" }));
+    expect(playApplause).toHaveBeenCalledOnce();
+    expect(stopAudio).toHaveBeenCalledOnce();
+  });
+
   it("gates multiplayer countdown ticks with sound effects independently of music", () => {
     vi.spyOn(PartyGameModule, "default").mockImplementation(
       ({ preferences, onCountdownTick }) => (
