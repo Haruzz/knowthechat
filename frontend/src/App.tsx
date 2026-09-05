@@ -9,6 +9,7 @@ import {
 
 import StreakEffects, { GamePreferences } from "./StreakEffects";
 import PartyGame from "./PartyGame";
+import GameChannel from "./GameChannel";
 import { useMusic, type MusicScene } from "./music";
 import {
   playAnswerSound,
@@ -887,13 +888,7 @@ export default function App() {
           </div>
           {preferences}
         </div>
-        <div className="game-channel">
-          {streamer && <img src={streamer.logo} alt="" />}
-          <div>
-            <span>Playing</span>
-            <strong>#{streamer?.name ?? channel}</strong>
-          </div>
-        </div>
+        <GameChannel channel={channel} streamer={streamer} />
       </header>
       <div className="game-stage">
         <StreakEffects

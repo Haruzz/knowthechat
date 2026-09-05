@@ -8,8 +8,10 @@ import {
 } from "react";
 
 import StreakEffects from "./StreakEffects";
+import GameChannel from "./GameChannel";
 import type { MusicScene } from "./music";
 import { useCountdownTicks } from "./useCountdownTicks";
+import { useStreamerProfile } from "./useStreamerProfile";
 import { connectRoom, RoomError } from "./roomConnection";
 import {
   parseLeave,
@@ -278,6 +280,7 @@ export default function PartyGame({
 }) {
   const [session, setSession] = useState<Session | null>(savedSession);
   const [room, setRoom] = useState<Room | null>(null);
+  const streamer = useStreamerProfile(room?.channel ?? null);
   const [tab, setTab] = useState<"create" | "join">(() =>
     inviteCode() ? "join" : "create",
   );
@@ -954,9 +957,16 @@ export default function PartyGame({
       translate="no"
     >
       <header className="party-header">
-        <div className="party-room-heading">
-          <p className="eyebrow">KNOW THE CHAT · PRIVATE PARTY</p>
-          <strong>#{room.channel}</strong>
+        <div className="party-brand-lockup">
+          <img
+            className="brand-logo mini-logo"
+            src="/logo.png"
+            alt="Know The Chat"
+          />
+          <div className="party-room-heading">
+            <p className="eyebrow">PRIVATE PARTY</p>
+            <strong>Play with friends</strong>
+          </div>
         </div>
         <div className="party-header-actions">
           <button
@@ -966,6 +976,7 @@ export default function PartyGame({
           >
             {busy === "leave" ? "Leaving…" : "Leave lobby"}
           </button>
+          <GameChannel channel={room.channel} streamer={streamer} />
         </div>
       </header>
       <div className="party-content">
@@ -1127,60 +1138,69 @@ export default function PartyGame({
                   aria-label={`Round ${room.roundNumber} clue`}
                 >
                   <p className="message-meta">
+                    <time dateTime={new Date(room.round.sentAt).toISOString()}>
+                      {new Date(room.round.sentAt).toLocaleDateString("en-US", {
+                        year: "numeric",
+                        month: "long",
+                        day: "numeric",
+                      })}
+                    </time>
+                    <span aria-hidden="true">·</span>
                     <span className={`difficulty ${room.round.difficulty}`}>
                       {room.round.difficulty}
                     </span>
-                    <span aria-hidden="true">·</span>
-                    <span>Who said it?</span>
                   </p>
-                  <blockquote>{renderMessage(room.round)}</blockquote>
-                  <div className="choices">
-                    {room.round.choices.map((choice, index) => (
-                      <button
-                        type="button"
-                        key={choice}
-                        disabled={locked}
-                        className={
-                          revealed
-                            ? choice === room.round?.author
-                              ? "right"
+                  <blockquote>“{renderMessage(room.round)}”</blockquote>
+                  <div className="answer-area">
+                    <p className="prompt">Who said it?</p>
+                    <div className="choices">
+                      {room.round.choices.map((choice, index) => (
+                        <button
+                          type="button"
+                          key={choice}
+                          disabled={locked}
+                          className={
+                            revealed
+                              ? choice === room.round?.author
+                                ? "right"
+                                : choice === me?.choice
+                                  ? "wrong"
+                                  : "dim"
                               : choice === me?.choice
-                                ? "wrong"
-                                : "dim"
-                            : choice === me?.choice
-                              ? "party-selected"
-                              : ""
-                        }
-                        aria-label={`Guess ${choice}`}
-                        aria-pressed={choice === me?.choice}
-                        onClick={() => void act("guess", choice)}
-                      >
-                        <span className="choice-avatar" aria-hidden="true">
-                          {choice.slice(0, 2).toUpperCase()}
-                        </span>
-                        <span className="choice-name">{choice}</span>
-                        <span className="choice-key" aria-hidden="true">
-                          {index + 1}
-                        </span>
-                      </button>
-                    ))}
+                                ? "party-selected"
+                                : ""
+                          }
+                          aria-label={`Guess ${choice}`}
+                          aria-pressed={choice === me?.choice}
+                          onClick={() => void act("guess", choice)}
+                        >
+                          <span className="choice-avatar" aria-hidden="true">
+                            {choice.slice(0, 2).toUpperCase()}
+                          </span>
+                          <span className="choice-name">{choice}</span>
+                          <span className="choice-key" aria-hidden="true">
+                            {index + 1}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                    <p
+                      className={`party-answer-status ${revealed || (!me?.answered && secondsLeft > 0 && busy !== "guess") ? "party-sr-only" : ""}`}
+                      role="status"
+                    >
+                      {revealed
+                        ? me?.roundPoints
+                          ? `You got it! +${me.roundPoints.toLocaleString()} points. ${room.round.author} said it.`
+                          : `The answer was ${room.round.author}. ${me?.choice ? "Next clue, fresh start." : "Time ran out."}`
+                        : me?.answered
+                          ? `Locked in: ${me.choice}. Waiting for the reveal…`
+                          : secondsLeft === 0
+                            ? "Time’s up! Waiting for the reveal…"
+                            : busy === "guess"
+                              ? "Locking in your guess…"
+                              : "Choose your answer or press 1, 2, or 3."}
+                    </p>
                   </div>
-                  <p
-                    className={`party-answer-status ${revealed && me?.roundPoints ? "party-points-earned" : ""}`}
-                    role="status"
-                  >
-                    {revealed
-                      ? me?.roundPoints
-                        ? `You got it! +${me.roundPoints.toLocaleString()} points. ${room.round.author} said it.`
-                        : `The answer was ${room.round.author}. ${me?.choice ? "Next clue, fresh start." : "Time ran out."}`
-                      : me?.answered
-                        ? `Locked in: ${me.choice}. Waiting for the reveal…`
-                        : secondsLeft === 0
-                          ? "Time’s up! Waiting for the reveal…"
-                          : busy === "guess"
-                            ? "Locking in your guess…"
-                            : "Choose your answer or press 1, 2, or 3."}
-                  </p>
                 </section>
               )
             )}

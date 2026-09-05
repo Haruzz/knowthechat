@@ -4,11 +4,17 @@ import {
   fireEvent,
   render,
   screen,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import PartyGame from "./PartyGame";
+import { useStreamerProfile } from "./useStreamerProfile";
 import { FakeRoomSocket } from "./test/FakeRoomSocket";
+
+vi.mock("./useStreamerProfile", () => ({
+  useStreamerProfile: vi.fn(() => null),
+}));
 
 const SESSION_KEY = "knowthechat-party-session";
 const activeRoom = () => ({
@@ -81,6 +87,7 @@ function reveal() {
 }
 
 beforeEach(() => {
+  vi.mocked(useStreamerProfile).mockReturnValue(null);
   vi.useFakeTimers();
   FakeRoomSocket.instances = [];
   vi.stubGlobal("WebSocket", FakeRoomSocket);
@@ -100,6 +107,74 @@ afterEach(() => {
 });
 
 describe("live party snapshots", () => {
+  it("matches the solo clue layout and streamer badge while keeping helper announcements out of the visible layout", () => {
+    vi.mocked(useStreamerProfile).mockReturnValue({
+      name: "ExampleStreamer",
+      logo: "https://example.com/avatar.png",
+    });
+    render(<PartyGame onBack={vi.fn()} />);
+    const socket = FakeRoomSocket.instances[0];
+    act(() => socket.message({ type: "room", room: activeRoom() }));
+    expect(useStreamerProfile).toHaveBeenLastCalledWith("example");
+    const header = screen.getByRole("banner");
+    expect(
+      within(header).getByRole("img", { name: "Know The Chat" }),
+    ).toBeTruthy();
+    expect(within(header).getByText("Playing")).toBeTruthy();
+    expect(within(header).getByText("#ExampleStreamer")).toBeTruthy();
+    expect(header.querySelector(".game-channel img")?.getAttribute("src")).toBe(
+      "https://example.com/avatar.png",
+    );
+    expect(
+      within(header).getByRole("button", { name: "Leave lobby" }),
+    ).toBeTruthy();
+
+    const clue = screen.getByRole("region", { name: "Round 5 clue" });
+    const metadata = clue.querySelector(".message-meta")!;
+    expect(metadata.children[0].tagName).toBe("TIME");
+    expect(metadata.children[0].getAttribute("datetime")).toBe(
+      "2023-11-14T22:13:20.000Z",
+    );
+    expect(metadata.textContent).toBe("November 14, 2023·medium");
+    expect(clue.querySelector("blockquote")?.textContent).toBe(
+      "“The chat never forgets”",
+    );
+    const prompt = within(clue).getByText("Who said it?");
+    expect(prompt.parentElement?.className).toBe("answer-area");
+    expect(prompt.nextElementSibling?.className).toBe("choices");
+    expect(
+      within(clue)
+        .getByText("Choose your answer or press 1, 2, or 3.")
+        .classList.contains("party-sr-only"),
+    ).toBe(true);
+
+    const room = activeRoom();
+    act(() =>
+      socket.message({
+        type: "room",
+        room: {
+          ...room,
+          revision: 3,
+          players: room.players.map((player) =>
+            player.id === room.you
+              ? { ...player, answered: true, choice: "Alice" }
+              : player,
+          ),
+        },
+      }),
+    );
+    expect(
+      screen
+        .getByText("Locked in: Alice. Waiting for the reveal…")
+        .classList.contains("party-sr-only"),
+    ).toBe(false);
+    act(() => socket.message({ type: "room", room: reveal() }));
+    const announcement = screen.getByText(/^You got it!.*Alice said it\.$/);
+    expect(announcement.classList.contains("party-sr-only")).toBe(true);
+    expect(announcement.getAttribute("role")).toBe("status");
+    expect(screen.getByRole("region", { name: "Scoreboard" })).toBeTruthy();
+  });
+
   it("ticks once per final second and stops immediately while a guess request is pending", async () => {
     const onCountdownTick = vi.fn();
     vi.spyOn(globalThis, "fetch").mockImplementation(

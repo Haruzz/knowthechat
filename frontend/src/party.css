@@ -127,12 +127,24 @@
   padding: 26px clamp(18px, 4vw, 68px);
 }
 .party-header {
-  width: min(1100px, 100%);
+  width: min(1180px, 100%);
   margin: 0 auto 44px;
   display: flex;
   justify-content: space-between;
   gap: 20px;
   align-items: center;
+}
+.party-brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+.party-brand-lockup > img {
+  flex: 0 0 auto;
+}
+.party-room-heading {
+  min-width: 0;
 }
 .party-room-heading > strong {
   font-size: 23px;
@@ -141,8 +153,11 @@
 .party-header-actions {
   display: flex;
   align-items: center;
-  gap: 18px;
-  flex-shrink: 0;
+  gap: 28px;
+  min-width: 0;
+}
+.party-header-actions > button {
+  flex: 0 0 auto;
 }
 .party-secondary {
   padding: 10px 14px;
@@ -159,7 +174,7 @@
   background: #39304e;
 }
 .party-content {
-  width: min(900px, 100%);
+  width: min(980px, 100%);
   margin: 0 auto;
   flex: 1;
 }
@@ -406,8 +421,6 @@
   margin-top: 46px;
 }
 .party-clue blockquote {
-  margin: 25px auto 38px;
-  font-size: clamp(29px, 3.8vw, 44px);
   overflow-wrap: anywhere;
 }
 .party-game .choices button:disabled {
@@ -427,6 +440,18 @@
   color: #c4b6d8;
   font-size: 13px;
   line-height: 1.6;
+}
+.party-answer-status.party-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 .party-next {
   text-align: center;
@@ -483,6 +508,15 @@
   outline: 3px solid #c6b2ff;
   outline-offset: 3px;
 }
+@media (max-width: 860px) {
+  .party-header {
+    flex-wrap: wrap;
+  }
+  .party-header-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
 @media (max-width: 600px) {
   .party-shell {
     padding: 24px 18px;
@@ -513,6 +547,9 @@
   }
   .party-header-actions {
     gap: 8px;
+  }
+  .party-header-actions .game-channel strong {
+    max-width: 170px;
   }
   .party-invite {
     padding: 20px 15px;
