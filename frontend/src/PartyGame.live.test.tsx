@@ -80,6 +80,26 @@ function reveal() {
   };
 }
 
+function timedOutReveal() {
+  const room = reveal();
+  return {
+    ...room,
+    deadline: null,
+    players: room.players.map((player) =>
+      player.id === room.you
+        ? {
+            ...player,
+            choice: null,
+            answered: false,
+            streak: 0,
+            score: 0,
+            roundPoints: 0,
+          }
+        : player,
+    ),
+  };
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
   FakeRoomSocket.instances = [];
@@ -100,6 +120,117 @@ afterEach(() => {
 });
 
 describe("live party snapshots", () => {
+  it("signals an unanswered timeout once when its leaderboard arrives", async () => {
+    const onRoundRevealed = vi.fn();
+    render(<PartyGame onBack={vi.fn()} onRoundRevealed={onRoundRevealed} />);
+    const socket = FakeRoomSocket.instances[0];
+    act(() => socket.message({ type: "room", room: activeRoom() }));
+    await act(async () => vi.advanceTimersByTimeAsync(20_000));
+    expect(onRoundRevealed).not.toHaveBeenCalled();
+    act(() => socket.message({ type: "room", room: timedOutReveal() }));
+    expect(onRoundRevealed).toHaveBeenCalledExactlyOnceWith(false, 0, true);
+    expect(screen.getByRole("region", { name: "Scoreboard" })).toBeTruthy();
+    act(() => socket.message({ type: "room", room: timedOutReveal() }));
+    act(() =>
+      socket.message({
+        type: "room",
+        room: { ...timedOutReveal(), phase: "finished", revision: 5 },
+      }),
+    );
+    expect(onRoundRevealed).toHaveBeenCalledOnce();
+  });
+
+  it("does not replay an already completed timeout when restoring a player session", () => {
+    const onRoundRevealed = vi.fn();
+    render(<PartyGame onBack={vi.fn()} onRoundRevealed={onRoundRevealed} />);
+    act(() =>
+      FakeRoomSocket.instances[0].message({
+        type: "room",
+        room: timedOutReveal(),
+      }),
+    );
+    expect(onRoundRevealed).not.toHaveBeenCalled();
+  });
+
+  it("keeps a hidden-tab interruption when an in-flight next-round response arrives", async () => {
+    const onRoundRevealed = vi.fn();
+    let respond!: (response: Response) => void;
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          respond = resolve;
+        }),
+    );
+    render(<PartyGame onBack={vi.fn()} onRoundRevealed={onRoundRevealed} />);
+    act(() =>
+      FakeRoomSocket.instances[0].message({ type: "room", room: reveal() }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Next round →" }));
+    vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    const nextRound = activeRoom();
+    nextRound.round.id = "round-6";
+    await act(async () => {
+      respond(new Response(JSON.stringify({ ...nextRound, revision: 5 })));
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(20_000));
+    vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    const timeout = timedOutReveal();
+    timeout.round.id = "round-6";
+    act(() =>
+      FakeRoomSocket.instances
+        .at(-1)!
+        .message({ type: "room", room: { ...timeout, revision: 6 } }),
+    );
+    expect(onRoundRevealed).not.toHaveBeenCalled();
+  });
+
+  it.each(["reconnect", "hidden tab"])(
+    "skips an old timeout after a %s interruption",
+    async (interruption) => {
+      const onRoundRevealed = vi.fn();
+      vi.spyOn(globalThis, "fetch").mockImplementation(
+        () => new Promise<Response>(() => {}),
+      );
+      render(<PartyGame onBack={vi.fn()} onRoundRevealed={onRoundRevealed} />);
+      act(() =>
+        FakeRoomSocket.instances[0].message({
+          type: "room",
+          room: activeRoom(),
+        }),
+      );
+      if (interruption === "reconnect") {
+        act(() => FakeRoomSocket.instances[0].disconnect());
+        await act(async () => vi.advanceTimersByTimeAsync(1_000));
+      } else {
+        vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+        vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+        act(() => document.dispatchEvent(new Event("visibilitychange")));
+        vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+        vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+        act(() => document.dispatchEvent(new Event("visibilitychange")));
+      }
+      const socket = FakeRoomSocket.instances.at(-1)!;
+      act(() => socket.message({ type: "room", room: timedOutReveal() }));
+      expect(onRoundRevealed).not.toHaveBeenCalled();
+      const nextRound = activeRoom();
+      nextRound.round.id = "round-6";
+      act(() =>
+        socket.message({ type: "room", room: { ...nextRound, revision: 5 } }),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(20_000));
+      const timeout = timedOutReveal();
+      timeout.round.id = "round-6";
+      act(() =>
+        socket.message({ type: "room", room: { ...timeout, revision: 6 } }),
+      );
+      expect(onRoundRevealed).toHaveBeenCalledExactlyOnceWith(false, 0, true);
+    },
+  );
+
   it("ticks once per final second and stops immediately while a guess request is pending", async () => {
     const onCountdownTick = vi.fn();
     vi.spyOn(globalThis, "fetch").mockImplementation(

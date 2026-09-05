@@ -204,6 +204,138 @@ describe("game audio", () => {
     },
   );
 
+  it("creates an original sub-second ding with a quick attack and softer bell overtones", async () => {
+    const { prepareAudio, playTimeUpSound } = await import("./audio");
+    await prepareAudio();
+    const audio = MockAudioContext.instances[0];
+    playTimeUpSound();
+    expect(audio.sources).toHaveLength(0);
+    expect(audio.oscillators).toHaveLength(3);
+    const pitches = audio.oscillators.map(
+      (tone) => tone.frequency.setValueAtTime.mock.calls[0][0],
+    );
+    expect(pitches[0]).toBe(1200);
+    expect(
+      pitches
+        .slice(1)
+        .every(
+          (frequency) =>
+            frequency > pitches[0] && !Number.isInteger(frequency / pitches[0]),
+        ),
+    ).toBe(true);
+    const levels = audio.gains.map(
+      (gain) => gain.gain.linearRampToValueAtTime.mock.calls[0][0],
+    );
+    expect(levels[0]).toBeGreaterThanOrEqual(0.25);
+    expect(levels[1]).toBeLessThan(levels[0]);
+    expect(levels[2]).toBeLessThan(levels[1]);
+    expect(levels.reduce((sum, level) => sum + level, 0)).toBeLessThan(0.5);
+    const ends = audio.oscillators.map((tone) => tone.stop.mock.calls[0][0]);
+    expect(Math.max(...ends)).toBeGreaterThanOrEqual(5.5);
+    expect(Math.max(...ends)).toBeLessThanOrEqual(5.8);
+    for (const [index, tone] of audio.oscillators.entries()) {
+      expect(tone.start).toHaveBeenCalledWith(5);
+      expect(tone.type).toBe("sine");
+      expect(
+        audio.gains[index].gain.linearRampToValueAtTime.mock.calls[0][1],
+      ).toBeLessThanOrEqual(5.003);
+      expect(
+        audio.gains[index].gain.exponentialRampToValueAtTime.mock.calls[0][0],
+      ).toBe(0.001);
+      tone.onended?.();
+      expect(tone.disconnect).toHaveBeenCalledOnce();
+    }
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("replaces the last clock tick and allows explicit replay or a new answer sound", async () => {
+    const {
+      prepareAudio,
+      playTimeUpSound,
+      playCountdownTick,
+      playAnswerSound,
+    } = await import("./audio");
+    await prepareAudio();
+    const audio = MockAudioContext.instances[0];
+    playCountdownTick(1);
+    const lastTick = audio.sources[0];
+    playTimeUpSound();
+    expect(lastTick.disconnect).toHaveBeenCalledOnce();
+    const firstDing = [...audio.oscillators];
+    playTimeUpSound();
+    for (const tone of firstDing)
+      expect(tone.disconnect).toHaveBeenCalledOnce();
+    expect(audio.sources).toHaveLength(1);
+    expect(audio.oscillators).toHaveLength(6);
+    playAnswerSound(true);
+    expect(audio.oscillators).toHaveLength(9);
+  });
+
+  it("drops time-up cues before preparation and while suspended or hidden without queuing them", async () => {
+    const { prepareAudio, playTimeUpSound } = await import("./audio");
+    playTimeUpSound();
+    expect(MockAudioContext.instances).toHaveLength(0);
+    await prepareAudio();
+    const audio = MockAudioContext.instances[0];
+    expect(audio.sources).toHaveLength(0);
+    expect(audio.oscillators).toHaveLength(0);
+    audio.state = "suspended";
+    playTimeUpSound();
+    expect(audio.resume).not.toHaveBeenCalled();
+    audio.state = "running";
+    vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    playTimeUpSound();
+    expect(audio.sources).toHaveLength(0);
+    vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    playTimeUpSound();
+    expect(audio.oscillators).toHaveLength(3);
+  });
+
+  it("mutes every ding overtone immediately and allows an explicit replay", async () => {
+    const { prepareAudio, playTimeUpSound, stopAudio } =
+      await import("./audio");
+    await prepareAudio();
+    const audio = MockAudioContext.instances[0];
+    playTimeUpSound();
+    stopAudio();
+    for (const source of [...audio.sources, ...audio.oscillators]) {
+      expect(source.stop).toHaveBeenCalledTimes(2);
+      expect(source.disconnect).toHaveBeenCalledOnce();
+    }
+    playTimeUpSound();
+    expect(audio.sources).toHaveLength(0);
+    expect(audio.oscillators).toHaveLength(6);
+  });
+
+  it("plays the original ding even when the clock recordings cannot load", async () => {
+    vi.mocked(fetch).mockRejectedValue(new Error("Offline"));
+    const { prepareAudio, playTimeUpSound } = await import("./audio");
+    await prepareAudio();
+    await prepareAudio();
+    const audio = MockAudioContext.instances[0];
+    playTimeUpSound();
+    expect(audio.sources).toHaveLength(0);
+    expect(audio.oscillators).toHaveLength(3);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not wait for or download media when an already-unlocked page plays the ding", async () => {
+    const pending: Array<(response: Response) => void> = [];
+    vi.mocked(fetch).mockImplementation(
+      () => new Promise<Response>((resolve) => pending.push(resolve)),
+    );
+    const { prepareAudio, playTimeUpSound } = await import("./audio");
+    const ready = prepareAudio();
+    const audio = MockAudioContext.instances[0];
+    playTimeUpSound();
+    expect(audio.sources).toHaveLength(0);
+    expect(audio.oscillators).toHaveLength(3);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    for (const resolve of pending) resolve(new Response(new Uint8Array([1])));
+    await ready;
+    expect(audio.oscillators).toHaveLength(3);
+  });
+
   it("cleans up a failed buffer playback and keeps later cues usable", async () => {
     const { prepareAudio, playCountdownTick } = await import("./audio");
     await prepareAudio();

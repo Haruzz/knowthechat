@@ -6,6 +6,8 @@ type CountdownOptions = {
   deadline: number | null;
   enabled: boolean;
   onTick: (secondsLeft: number) => void;
+  /** Local preview completion; live games use the server's reveal instead. */
+  onComplete?: () => void;
   /** Only deliberate local previews should sound the initially observed second. */
   playOnStart?: boolean;
 };
@@ -15,9 +17,11 @@ export function useCountdownTicks({
   deadline,
   enabled,
   onTick,
+  onComplete,
   playOnStart = false,
 }: CountdownOptions): void {
   const callback = useRef(onTick);
+  const completion = useRef(onComplete);
   const observed = useRef<{
     roundId: string | null;
     lowest: number;
@@ -31,6 +35,9 @@ export function useCountdownTicks({
   useEffect(() => {
     callback.current = onTick;
   }, [onTick]);
+  useEffect(() => {
+    completion.current = onComplete;
+  }, [onComplete]);
 
   useEffect(() => {
     const isNewRound = observed.current.roundId !== roundId;
@@ -57,8 +64,18 @@ export function useCountdownTicks({
       // The low-water mark also prevents duplicate ticks if a clock correction
       // or a repeated room snapshot moves the visible countdown backwards.
       if (seconds >= observed.current.lowest) return;
+      const previous = observed.current.lowest;
       observed.current.lowest = seconds;
       if (seconds === 0) stopTimer();
+      // Only finish a countdown we actually observed, never a stale timer or
+      // an already expired preview restored after being hidden/disabled.
+      if (
+        !document.hidden &&
+        seconds === 0 &&
+        previous === 1 &&
+        Date.now() - deadline < 1_000
+      )
+        completion.current?.();
       if (!document.hidden && seconds >= 1 && seconds <= 5)
         callback.current(seconds);
     };

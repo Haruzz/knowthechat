@@ -14,6 +14,89 @@ afterEach(() => {
 });
 
 describe("countdown tick scheduling", () => {
+  it("finishes a visible preview once and resets for the next countdown", () => {
+    const onComplete = vi.fn();
+    const props = {
+      roundId: "preview-one",
+      deadline: Date.now() + 5_000,
+      enabled: true,
+      onTick: vi.fn(),
+      onComplete,
+      playOnStart: true,
+    };
+    const { rerender } = renderHook(useCountdownTicks, {
+      initialProps: props,
+      reactStrictMode: true,
+    });
+    act(() => vi.advanceTimersByTime(4_800));
+    expect(onComplete).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(200));
+    expect(onComplete).toHaveBeenCalledOnce();
+    rerender({ ...props });
+    act(() => vi.advanceTimersByTime(2_000));
+    expect(onComplete).toHaveBeenCalledOnce();
+    rerender({
+      ...props,
+      roundId: "preview-two",
+      deadline: Date.now() + 5_000,
+    });
+    act(() => vi.advanceTimersByTime(5_000));
+    expect(onComplete).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["hidden", "disabled", "cancelled"])(
+    "does not finish a preview that expired while %s",
+    (reason) => {
+      const onComplete = vi.fn();
+      const props = {
+        roundId: "preview" as string | null,
+        deadline: Date.now() + 5_000,
+        enabled: true,
+        onTick: vi.fn(),
+        onComplete,
+        playOnStart: true,
+      };
+      const { rerender } = renderHook(useCountdownTicks, {
+        initialProps: props,
+      });
+      act(() => vi.advanceTimersByTime(4_000));
+      if (reason === "hidden") {
+        vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+        act(() => document.dispatchEvent(new Event("visibilitychange")));
+      } else {
+        rerender({
+          ...props,
+          enabled: false,
+          roundId: reason === "cancelled" ? null : props.roundId,
+        });
+      }
+      act(() => vi.advanceTimersByTime(2_000));
+      vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+      act(() => document.dispatchEvent(new Event("visibilitychange")));
+      rerender(props);
+      act(() => vi.advanceTimersByTime(1_000));
+      expect(onComplete).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not finish an expired countdown on mount or after a long timer stall", () => {
+    const onComplete = vi.fn();
+    const props = {
+      roundId: "expired",
+      deadline: Date.now() - 100,
+      enabled: true,
+      onTick: vi.fn(),
+      onComplete,
+      playOnStart: true,
+    };
+    const { rerender } = renderHook(useCountdownTicks, { initialProps: props });
+    expect(onComplete).not.toHaveBeenCalled();
+    rerender({ ...props, roundId: "stalled", deadline: Date.now() + 1_000 });
+    vi.setSystemTime(Date.now() + 3_000);
+    act(() => vi.advanceTimersByTime(200));
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+
   it("sounds each last second once, tolerates repeated snapshots and resets for a new round", () => {
     const onTick = vi.fn();
     const props = {

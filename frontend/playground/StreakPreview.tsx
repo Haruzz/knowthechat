@@ -5,6 +5,7 @@ import {
   playAnswerSound,
   playCountdownTick,
   playStreakSound,
+  playTimeUpSound,
   prepareAudio,
   stopAudio,
 } from "../src/audio";
@@ -31,8 +32,9 @@ export default function StreakPreview() {
   useCountdownTicks({
     roundId: countdown ? `preview-${countdown.id}` : null,
     deadline: countdown?.deadline ?? null,
-    enabled: soundEnabled && countdownSeconds > 0,
+    enabled: soundEnabled && countdown !== null,
     onTick: playCountdownTick,
+    onComplete: playTimeUpSound,
     playOnStart: true,
   });
   const [musicPreview, setMusicPreview] = useState<
@@ -198,7 +200,7 @@ export default function StreakPreview() {
           />
           <p className="preview-note">
             Choose a music scene or try a milestone. Final seconds starts the
-            five-second tick-tock countdown.
+            five-second tick-tock countdown, ending with a time-up ding.
           </p>
           <div
             className="game-preferences"

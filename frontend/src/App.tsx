@@ -14,6 +14,7 @@ import {
   playAnswerSound,
   playCountdownTick,
   playStreakSound,
+  playTimeUpSound,
   prepareAudio,
   stopAudio,
 } from "./audio";
@@ -355,8 +356,12 @@ export default function App() {
     if (musicEnabled) prepareMusic();
   }, [soundEnabled, musicEnabled, prepareMusic]);
   const answerSound = useCallback(
-    (wasCorrect: boolean, nextStreak: number) => {
+    (wasCorrect: boolean, nextStreak: number, timedOut = false) => {
       if (!soundEnabled) return;
+      if (timedOut) {
+        playTimeUpSound();
+        return;
+      }
       if (wasCorrect && nextStreak > 0 && nextStreak % 5 === 0) {
         duckMusic(1_800);
         playStreakSound(nextStreak);
