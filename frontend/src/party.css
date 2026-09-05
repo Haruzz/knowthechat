@@ -1,0 +1,581 @@
+.party-shell {
+  padding: 36px 24px;
+}
+.party-setup {
+  max-width: 650px;
+}
+.party-back {
+  display: block;
+  margin: 0 0 35px;
+  padding: 5px 0;
+  border: 0;
+  background: transparent;
+  color: #bfb3da;
+  cursor: pointer;
+  font: inherit;
+}
+.party-setup > .eyebrow {
+  color: #b8a2ff;
+  margin-bottom: 18px;
+}
+.party-setup h1 {
+  font-size: clamp(40px, 6.5vw, 64px);
+}
+.party-setup .simple-copy {
+  max-width: 460px;
+  margin: 20px auto 26px;
+}
+.party-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  max-width: 520px;
+  margin: 0 auto 22px;
+  border: 1px solid #493e61;
+  border-radius: 13px;
+  padding: 5px;
+  background: #171222;
+}
+.party-tabs button {
+  border: 0;
+  border-radius: 9px;
+  padding: 13px 10px;
+  background: transparent;
+  color: #b2a7c5;
+  font: inherit;
+  font-weight: 750;
+  cursor: pointer;
+}
+.party-tabs button[aria-pressed="true"] {
+  background: #40315e;
+  color: #fff;
+  box-shadow: 0 3px 12px #0002;
+}
+.party-form {
+  max-width: 520px;
+  margin: auto;
+  text-align: left;
+}
+.party-form fieldset {
+  min-width: 0;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.party-form label {
+  display: block;
+  color: #c5b9d8;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.045em;
+  margin: 0 0 8px;
+}
+.party-form input,
+.party-form select {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #504264;
+  border-radius: 10px;
+  background: #29223a;
+  color: #fff;
+  padding: 13px 14px;
+  font: inherit;
+}
+.party-form input {
+  margin: 0 0 19px;
+}
+.party-form input::placeholder {
+  color: #a294b3;
+}
+.party-form select {
+  margin-top: 8px;
+  font-size: 13px;
+}
+.party-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+}
+.party-submit {
+  width: 100%;
+  margin-top: 12px;
+  padding: 16px 20px;
+  font-size: 15px;
+}
+.party-form .party-code-input {
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-size: 22px;
+  font-weight: 800;
+}
+.party-help {
+  color: #b0a3c0;
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 20px auto 0;
+}
+.party-reconnecting {
+  padding: 20px;
+  border: 1px solid #55476a;
+  border-radius: 16px;
+  background: #282037;
+}
+.party-game {
+  display: flex;
+  flex-direction: column;
+  padding: 26px clamp(18px, 4vw, 68px);
+}
+.party-header {
+  width: min(1100px, 100%);
+  margin: 0 auto 44px;
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: center;
+}
+.party-room-heading > strong {
+  font-size: 23px;
+  overflow-wrap: anywhere;
+}
+.party-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-shrink: 0;
+}
+.party-secondary {
+  padding: 10px 14px;
+  border: 1px solid #544563;
+  border-radius: 9px;
+  background: #2a233b;
+  color: #ede7f7;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.party-secondary:hover {
+  background: #39304e;
+}
+.party-content {
+  width: min(900px, 100%);
+  margin: 0 auto;
+  flex: 1;
+}
+.party-preferences {
+  margin: -22px 0 24px;
+}
+.party-preferences .game-preferences {
+  margin: 0;
+}
+.party-streak-effects {
+  margin-top: 22px;
+}
+.party-streak-effects .streak-milestone-slot {
+  min-height: 40px;
+  padding: 6px 0 8px;
+}
+.party-streak-effects + .party-clue {
+  margin-top: 16px;
+}
+.party-content .simple-error {
+  max-width: none;
+}
+.party-connection {
+  border: 1px solid #9c743c;
+  background: #352a1f;
+  color: #f5d29c;
+  padding: 12px 16px;
+  font-size: 13px;
+  border-radius: 10px;
+}
+.party-lobby {
+  max-width: 680px;
+  margin: 20px auto 0;
+  text-align: center;
+}
+.party-lobby h1 {
+  font-size: clamp(34px, 4.5vw, 48px);
+  line-height: 1.1;
+}
+.party-lobby > .eyebrow {
+  color: #bca4ff;
+}
+.party-description {
+  margin: 17px 0 28px;
+  color: #b5a9c5;
+  font-size: 13px;
+}
+.party-invite {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
+  padding: 23px 28px;
+  border: 1px solid #5b457f;
+  border-radius: 16px;
+  background: linear-gradient(115deg, #332546, #242033);
+  text-align: left;
+}
+.party-code > span {
+  display: block;
+  color: #b9a5d6;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 7px;
+}
+.party-code strong {
+  display: block;
+  color: #f5efff;
+  font-size: 34px;
+  letter-spacing: 0.18em;
+  font-variant-numeric: tabular-nums;
+}
+.party-code > button {
+  margin-top: 12px;
+}
+.party-invite-actions {
+  display: grid;
+  gap: 10px;
+}
+.party-scoreboard {
+  margin: 28px 0;
+  text-align: left;
+  padding: 22px;
+  border: 1px solid #43374f;
+  border-radius: 17px;
+  background: #201a2e;
+}
+.party-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  margin-bottom: 18px;
+}
+.party-section-heading h2 {
+  font-size: 23px;
+}
+.party-section-heading > span {
+  font-size: 11px;
+  color: #b2a4c3;
+}
+.party-players {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.party-players li {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 15px 10px;
+  border-top: 1px solid #3b304a;
+}
+.party-players li.party-you {
+  background: #30223f;
+  border-radius: 9px;
+}
+.party-rank {
+  flex: 0 0 15px;
+  color: #a190b4;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+.party-avatar {
+  display: grid;
+  place-items: center;
+  flex: 0 0 34px;
+  height: 34px;
+  border-radius: 11px;
+  font-size: 11px;
+  font-weight: 900;
+}
+.party-player-name {
+  min-width: 0;
+}
+.party-player-name strong {
+  display: block;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.party-player-name small {
+  display: block;
+  font-size: 11px;
+  color: #b1a2c1;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+.party-player-score {
+  text-align: right;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.party-player-score strong {
+  display: block;
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+.party-player-score strong span {
+  font-size: 10px;
+  color: #b2a0c6;
+  font-weight: 500;
+}
+.party-player-score small {
+  display: block;
+  font-size: 10px;
+  color: #a798b8;
+  margin-top: 4px;
+}
+.party-player-score .party-ready,
+.party-points-earned {
+  color: #89e7b6 !important;
+}
+.party-player-score .party-streak {
+  color: #ffc080;
+}
+.party-start {
+  min-width: min(100%, 340px);
+  padding: 15px 20px;
+}
+.party-waiting {
+  color: #cebee6;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.party-round-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+}
+.party-round-status > div > strong {
+  font-size: 22px;
+}
+.party-round-status > div > strong > span {
+  color: #9b8eab;
+  font-size: 15px;
+}
+.party-timer {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.party-timer > strong {
+  font-size: 38px !important;
+  font-variant-numeric: tabular-nums;
+  color: #c6b5ff;
+}
+.party-timer > strong > small {
+  font-size: 16px;
+  margin-left: 3px;
+}
+.party-timer > span {
+  font-size: 12px;
+  color: #b0a1c3;
+}
+.party-timer-urgent > strong {
+  color: #ffaf91;
+}
+.party-timer-track {
+  height: 4px;
+  margin-top: 16px;
+  background: #392d49;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.party-timer-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #7554ed, #d8afff);
+  transition: width 200ms linear;
+}
+.party-reveal-tag {
+  border: 1px solid #594570;
+  padding: 8px 12px;
+  border-radius: 20px;
+  color: #d7baf9;
+  font-size: 11px;
+  font-weight: 700;
+}
+.party-clue {
+  margin-top: 46px;
+}
+.party-clue blockquote {
+  margin: 25px auto 38px;
+  font-size: clamp(29px, 3.8vw, 44px);
+  overflow-wrap: anywhere;
+}
+.party-game .choices button:disabled {
+  cursor: default;
+}
+.party-game .choices button:disabled:hover {
+  transform: none;
+}
+.party-game .choices button.party-selected {
+  background: #3e2c5c;
+  border-color: #c9a7ff;
+  box-shadow: 0 0 0 1px #c9a7ff;
+}
+.party-answer-status {
+  min-height: 24px;
+  margin: 22px 0 0;
+  color: #c4b6d8;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.party-next {
+  text-align: center;
+  margin: 0 0 20px;
+}
+.party-next .launch {
+  min-width: 230px;
+  padding: 15px 20px;
+}
+.party-winner {
+  text-align: center;
+  padding: 26px 0 0;
+}
+.party-trophy {
+  display: block;
+  font-size: 55px;
+  margin-bottom: 13px;
+}
+.party-winner h1 {
+  font-size: clamp(32px, 4.6vw, 49px);
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+.party-winner > p {
+  color: #c5aedc;
+  font-size: 20px;
+  margin: 14px 0 0;
+}
+.party-winner > .party-help {
+  font-size: 13px;
+}
+.party-footer {
+  margin: 35px auto 0;
+  color: #9f90ae;
+  font-size: 11px;
+  text-align: center;
+  line-height: 1.6;
+}
+.party-game button:disabled,
+.party-setup button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.party-game .choices button:disabled {
+  opacity: 1;
+}
+.party-game .choices button.dim {
+  opacity: 0.45;
+}
+.party-game button:focus-visible,
+.party-setup button:focus-visible,
+.party-setup input:focus-visible,
+.party-setup select:focus-visible {
+  outline: 3px solid #c6b2ff;
+  outline-offset: 3px;
+}
+@media (max-width: 600px) {
+  .party-shell {
+    padding: 24px 18px;
+  }
+  .party-setup {
+    width: 100%;
+  }
+  .party-back {
+    margin-bottom: 28px;
+  }
+  .party-options {
+    gap: 8px 10px;
+  }
+  .party-form select {
+    font-size: 12px;
+    padding: 12px 8px;
+  }
+  .party-header {
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+  .party-header .eyebrow {
+    font-size: 8px;
+    letter-spacing: 0.08em;
+  }
+  .party-room-heading > strong {
+    font-size: 18px;
+  }
+  .party-header-actions {
+    gap: 8px;
+  }
+  .party-invite {
+    padding: 20px 15px;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .party-code strong {
+    font-size: 30px;
+  }
+  .party-invite-actions {
+    flex-grow: 1;
+  }
+  .party-invite .launch {
+    font-size: 12px;
+  }
+  .party-description {
+    line-height: 1.6;
+  }
+  .party-scoreboard {
+    padding: 16px 10px;
+  }
+  .party-section-heading {
+    padding: 0 5px;
+  }
+  .party-players li {
+    gap: 8px;
+    padding: 13px 6px;
+  }
+  .party-avatar {
+    flex-basis: 28px;
+    height: 28px;
+    font-size: 9px;
+  }
+  .party-player-score strong {
+    font-size: 15px;
+  }
+  .party-player-name strong {
+    font-size: 12px;
+  }
+  .party-player-name small {
+    font-size: 10px;
+  }
+  .party-player-score small {
+    font-size: 9px;
+  }
+  .party-timer {
+    gap: 8px;
+  }
+  .party-timer > span {
+    max-width: 65px;
+    font-size: 10px;
+    text-align: right;
+    line-height: 1.6;
+  }
+  .party-clue {
+    margin-top: 32px;
+  }
+  .party-game .choices {
+    grid-template-columns: 1fr;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .party-timer-track > span {
+    transition: none;
+  }
+}

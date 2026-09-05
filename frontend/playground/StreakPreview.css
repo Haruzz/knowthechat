@@ -1,0 +1,108 @@
+.streak-preview-header {
+  width: min(980px, 100%);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+.streak-preview-header h1 {
+  margin: 6px 0 0;
+  font-size: clamp(24px, 5vw, 38px);
+}
+.streak-preview-header .eyebrow {
+  margin: 0;
+}
+.streak-preview-stage {
+  width: min(900px, 100%);
+  margin: 16px auto 0;
+}
+.streak-preview .game-card blockquote {
+  margin: 20px auto 36px;
+}
+.preview-controls {
+  text-align: center;
+  color: #c5b5cb;
+}
+.preview-controls > p:first-child {
+  margin: 0 0 18px;
+}
+.preview-tiers {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.preview-tiers button,
+.preview-secondary {
+  padding: 13px 16px;
+  border: 1px solid #695780;
+  border-radius: 12px;
+  background: #2b223b;
+  color: #f5edff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.preview-tiers button:first-child {
+  color: #ffcc93;
+  border-color: #b87943;
+}
+.preview-tiers button:nth-child(2) {
+  color: #ffb099;
+  border-color: #bd674c;
+}
+.preview-tiers button:nth-child(3) {
+  color: #f8b6e3;
+  border-color: #a66096;
+}
+.preview-tiers button:hover,
+.preview-secondary:hover {
+  background: #3a2c50;
+}
+.preview-tiers button:focus-visible,
+.preview-secondary:focus-visible {
+  outline: 3px solid #b7a5ff;
+  outline-offset: 3px;
+}
+.preview-secondary:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin: 18px 0;
+}
+.preview-actions button {
+  font-size: 12px;
+  padding: 10px 13px;
+}
+.preview-count {
+  font-size: 13px;
+}
+.preview-count output {
+  color: #fff;
+  font-weight: 800;
+}
+.preview-note {
+  max-width: 520px;
+  margin: 18px auto 0;
+  color: #a99bbd;
+  font-size: 12px;
+  line-height: 1.6;
+}
+@media (max-width: 500px) {
+  .streak-preview-header {
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .preview-tiers {
+    gap: 7px;
+  }
+  .preview-tiers button {
+    padding: 14px 6px;
+    font-size: 11px;
+  }
+}

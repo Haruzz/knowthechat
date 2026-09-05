@@ -8,6 +8,7 @@ The application is one Cloudflare Worker deployment, not two publicly routed Wor
 - `assets.not_found_handling` supplies `index.html` for SPA navigation.
 - `assets.run_worker_first: ["/api/*"]` invokes Python only for API paths.
 - Python returns 404 for unknown `/api/*` paths instead of falling through to the SPA.
+- `/api/rooms*` uses the same Python Worker and internal `GAME_ROOMS` Durable Object binding. HTTP commands use FastAPI; `/:code/events` upgrades forward natively to the object for WebSocket hibernation.
 - The Worker name remains `know-the-chat`.
 - `knowthechat.com` and `www.knowthechat.com` are declared as Custom Domains because the Worker is the origin.
 
@@ -26,6 +27,41 @@ This avoids a frontend proxy Worker and service-binding hop while retaining `fet
 - `workers-py` and `workers-runtime-sdk` are development/tooling dependencies, not generic server frameworks.
 
 Before adding Python packages, check Cloudflare's current Python package support. Packages requiring unavailable native extensions, subprocesses, a writable persistent filesystem, or a conventional long-running CPython server are not safe assumptions.
+
+## Multiplayer state
+
+`backend/wrangler.jsonc` declares `GAME_ROOMS` bound to the exported Python `GameRoom` class, with the `v1-game-rooms` migration creating its SQLite-backed namespace. The additional `ROOM_ADMISSION` binding uses the exported `RoomAdmission` class and the additive `v2-room-admission` SQLite migration. Both classes stay inside the existing Worker. Local `pywrangler dev` provisions and persists these bindings locally; no Cloudflare account mutation is needed to develop or test lobbies.
+
+Each code has its own object; guesses, room updates and heartbeats remain independent across matches. Only admission and room lifecycle operations contact the shared coordinator. Each room retains at most eight players, 20 selected quotes, and a bounded state payload. Round deadlines and cleanup use alarms instead of server-side timer loops. Two-hour room expiry and 15-minute member inactivity limit retained state; explicit departure of the final member also deletes the room. The existing `2026-08-22` compatibility date supports `deleteAll()` deleting stored data and alarms together, and has not been changed for multiplayer.
+
+Room updates now use hibernating WebSockets. Cloudflare keeps idle clients connected while allowing Python to sleep, and automatic ping/pong messages do not wake the room. Personalized updates follow real changes and deadline alarms, so healthy clients no longer request state every 1.5 seconds. Automatic reconnection retains an HTTP fallback for networks that block WebSockets.
+
+The eight-player limit includes the host and is enforced by the server; available seats go to successful joins while the room is waiting. The current implementation sends a personalized full roster to every connected client after a change, so increasing the player constant alone is not sufficient for audience-sized games. Larger rooms need smaller updates and burst/load measurements first.
+
+The WebSocket transport uses the existing room class, binding and compatibility date. `acceptWebSocket()`, socket attachments and auto-response timestamps support recovery after hibernation; the existing date also enables automatic close replies. See [WebSocket hibernation](https://developers.cloudflare.com/durable-objects/best-practices/websockets/) and the [Durable Object state API](https://developers.cloudflare.com/durable-objects/api/state/).
+
+The same-origin API validates browser origins and accepts HTTP player credentials in `Authorization: Bearer` headers. Browser WebSocket upgrades offer the credential through a `session.<token>` subprotocol and negotiate only `knowthechat.v1` in the response. Tokens are randomly generated and stored only as SHA-256 digests in room state. Neither browser tokens nor private answers should be added to URLs or logs. Local Vite proxying preserves the original host so its forwarded requests satisfy the same origin check.
+
+## Multiplayer admission limits
+
+Set these string variables in `backend/wrangler.jsonc` when hosting your own instance:
+
+| Variable                    | Default | Scope                                                                                      |
+| --------------------------- | ------- | ------------------------------------------------------------------------------------------ |
+| `ROOM_MAX_OPEN`             | `"10"`  | Open rooms and preparations across the site, including waiting lobbies and final standings |
+| `ROOM_PREPARATIONS_PER_DAY` | `"100"` | Admitted creation/rematch archive preparations across the site over the previous 24 hours  |
+| `ROOM_MATCHES_PER_DAY`      | `"100"` | New-match admissions across the site over the previous 24 hours, including rematches       |
+| `ROOM_CREATIONS_PER_MINUTE` | `"3"`   | Admitted new-room preparations from one hashed network key over the previous 60 seconds    |
+
+Values must be decimal strings from 1 through 10,000; invalid settings fail closed. These are rolling windows, so allowances recover as old admissions expire rather than resetting at midnight. Every admitted archive preparation counts, including each rematch attempt and failed upstream fetch. A rematch reserves its next-match admission before fetching fresh chat; retries for that pending match reuse the same admission, and starting the successfully prepared rematch does not count it twice.
+
+The shared ledger checks and reserves capacity before a new room fetches archives. New-room preparations have a 90-second timeout and a two-minute pending reservation. An activated reservation expires with its two-hour room or releases when the room closes. Rematches retain that existing slot and do not consume another per-network room-creation entry. Existing games keep running when an admission limit is reached. HTTP errors include a readable message and, where available, retry seconds in both `retryAfter` and `Retry-After`; the browser waits for a manual retry. These controls do not change the solo archive endpoint or impose a new limit on joining an existing waiting room.
+
+Admission records are cleaned up with requests and alarms. Network hashes remain only for the 60-second creation window; preparation and match records remain for their 24-hour windows. The application does not store raw IP addresses in the admission ledger. People sharing a public IP also share its creation limit. Requests without client-address information, such as local Wrangler requests, share one fixed creation bucket with the same limits.
+
+Fresh rematches reuse the channel, original rolling range or calendar year, and chatter pool. Each fetch excludes the room's stored hashes of up to 2,000 recently used quote texts. The old results remain until a complete fresh deck is ready. Insufficient fresh quotes or a fetch failure returns an error without replacing the deck or clearing scores. The host can retry or create a lobby with different settings. Preparation is capped at 90 seconds; create and rematch clients allow 110 seconds to receive the server's response. The bounded history is internal and is deleted with the room.
+
+When introducing the admission binding to an existing deployment, rooms without reservations can finish their current game, but hosts must create a fresh lobby before starting another game or rematch. Rooms without stored original archive settings also need a new lobby before rematching. Preserve both migration entries and class exports during later changes.
 
 ## Caching
 
@@ -80,6 +116,32 @@ uv run pywrangler dev
 
 Then open `http://127.0.0.1:8787`.
 
+### Local admission smoke test
+
+Use a fresh local persistence directory for each run, because rolling counters
+survive restarts. In one terminal, start an isolated Worker with deliberately
+small test limits:
+
+```bash
+cd backend
+uv run pywrangler dev --port 8788 --persist-to .wrangler/admission-smoke-$(date +%s) \
+  --var ROOM_MAX_OPEN:1 --var ROOM_PREPARATIONS_PER_DAY:3 \
+  --var ROOM_MATCHES_PER_DAY:2 --var ROOM_CREATIONS_PER_MINUTE:3
+```
+
+In another terminal at the repository root:
+
+```bash
+node scripts/smoke-admission.mjs jaxstyle
+```
+
+The script accepts localhost only and uses real public archives. It checks full
+capacity, initial match and fresh-rematch admission, preserved results after a denied
+rematch, capacity release, and rolling preparation counts after room deletion.
+The three preparation slots cover the initial room, its rematch and a new room.
+Stop this isolated server when finished; normal development uses the configured
+defaults.
+
 ## Deployment and rollback
 
 The Worker is connected to the `Haruzz/knowthechat` GitHub repository through
@@ -114,9 +176,9 @@ npm run check
 ```
 
 Production deployments are performed by Workers Builds after a push to `main`.
-The only required binding is the automatically provisioned `ASSETS` binding.
+Required bindings are the automatically provisioned `ASSETS` binding and the configured SQLite-backed `GAME_ROOMS` and `ROOM_ADMISSION` Durable Object namespaces.
 
-Rollback immediately if health checks fail:
+For normal code-only deployments, inspect versions and roll back if health checks fail:
 
 ```bash
 cd backend
@@ -125,7 +187,9 @@ uv run pywrangler versions list
 uv run pywrangler rollback
 ```
 
-After rollback, verify `/`, `/logo.png`, a `POST /api/public-archive`, and both custom hostnames. The prior Worker version includes its prior script/assets deployment, so no DNS reversal should be necessary.
+After rollback, verify `/`, `/logo.png`, a `POST /api/public-archive`, a two-player lobby, and both custom hostnames. The prior Worker version includes its prior script/assets deployment, so no DNS reversal should be necessary.
+
+Cloudflare does not allow rollback across a Durable Object class lifecycle migration. Deployments introducing `v1-game-rooms` or `v2-room-admission` therefore need a forward-fix plan: retain both class exports, bindings and migration history when reverting unrelated application code. Do not delete a namespace or add a class deletion migration to undo a frontend issue, because deleting a class deletes its stored data. Deployment, rollback, and account changes require explicit user authorization.
 
 ## Known toolchain limitations
 
@@ -146,3 +210,10 @@ After rollback, verify `/`, `/logo.png`, a `POST /api/public-archive`, and both 
 - [Workers Builds branch control](https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/)
 - [Installing uv](https://docs.astral.sh/uv/getting-started/installation/)
 - [Wrangler configuration](https://developers.cloudflare.com/workers/wrangler/configuration/)
+- [Python Durable Objects support](https://developers.cloudflare.com/changelog/post/2025-05-14-python-worker-durable-object/)
+- [Durable Object rules and SQLite storage](https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/)
+- [Durable Object alarms](https://developers.cloudflare.com/durable-objects/api/alarms/)
+- [Atomic data and alarm cleanup](https://developers.cloudflare.com/changelog/post/2026-02-24-deleteall-deletes-alarms/)
+- [Workers Builds pricing](https://developers.cloudflare.com/workers/ci-cd/builds/limits-and-pricing/)
+- [Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/)
+- [Rollback binding constraints](https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/#bindings)

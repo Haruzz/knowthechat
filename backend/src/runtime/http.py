@@ -1,32 +1,48 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, cast
 
-# The `js` module exists only inside the Pyodide Worker runtime.
-from js import AbortSignal  # pyright: ignore[reportMissingImports, reportAttributeAccessIssue]
-from workers import fetch
+# Cloudflare provides `js` at runtime; backend/typings supplies local editor types.
+from js import AbortSignal  # pyright: ignore[reportMissingModuleSource]
+from workers import Response, fetch
 
 from providers.protocols import HttpResponseTooLargeError
 
+if TYPE_CHECKING:
+    from js import ReadableStream, Uint8Array  # pyright: ignore[reportMissingModuleSource]
+    from workers.types import FetchKwargs
 
-async def cancel_body(source: Any, reason: str) -> None:
-    if source.body is None:
+    class HttpFetchOptions(FetchKwargs, total=False):
+        # The SDK forwards this Fetch API option but omits it from FetchKwargs.
+        signal: AbortSignal
+
+
+def response_body(source: Response) -> ReadableStream[Uint8Array] | None:
+    # HTTP bodies yield byte chunks; the SDK's property omits both the element
+    # type and the possibility of a null body (for example, a 204 response).
+    return cast("ReadableStream[Uint8Array] | None", source.body)
+
+
+async def cancel_body(source: Response, reason: str) -> None:
+    stream = response_body(source)
+    if stream is None:
         return
     try:
-        await source.body.cancel(reason)
+        await stream.cancel(reason)
     except Exception:
         pass
 
 
-async def read_bounded_body(source: Any, maximum: int) -> bytearray | None:
-    if source.body is None:
+async def read_bounded_body(source: Response, maximum: int) -> bytearray | None:
+    stream = response_body(source)
+    if stream is None:
         return bytearray()
-    reader = source.body.getReader()
+    reader = stream.getReader()
     body = bytearray()
     while True:
         result = await reader.read()
-        if result.done:
+        if result.done is True:
             return body
         chunk = bytes(result.value.to_py())
         if len(body) + len(chunk) > maximum:
@@ -45,8 +61,8 @@ class CloudflareJsonHttpClient:
         user_agent: str,
         cache_ttl: int | None = None,
         accepted_statuses: tuple[int, ...] = (),
-    ) -> Any | None:
-        options: dict[str, Any] = {
+    ) -> object:
+        options: HttpFetchOptions = {
             "headers": {"Accept": "application/json", "User-Agent": user_agent},
             "signal": AbortSignal.timeout(timeout_ms),
         }

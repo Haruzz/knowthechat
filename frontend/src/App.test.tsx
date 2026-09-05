@@ -1,11 +1,127 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
+import {
+  playAnswerSound,
+  playStreakSound,
+  prepareAudio,
+  stopAudio,
+} from "./audio";
+vi.mock("./audio", () => ({
+  prepareAudio: vi.fn(),
+  playAnswerSound: vi.fn(),
+  playStreakSound: vi.fn(),
+  stopAudio: vi.fn(),
+}));
 
-afterEach(() => vi.restoreAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  localStorage.clear();
+  sessionStorage.clear();
+  window.history.replaceState({}, "", "/");
+});
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
+async function startGame(roundCount = 16) {
+  vi.spyOn(Math, "random").mockReturnValue(0.5);
+  const chatters = ["Alice", "Bob", "Carol"].map((name, index) => ({
+    id: String(index),
+    name,
+    avatar: "",
+    messages: 10,
+    sub: false,
+    vip: false,
+    mod: false,
+    score: 10,
+    activeDays: 3,
+    activeMonths: 1,
+    avgWords: 5 + index,
+  }));
+  const quotes = Array.from({ length: roundCount }, (_, index) => ({
+    id: `quote-${index}`,
+    author: chatters[index % 3].name,
+    text: `Clue from ${chatters[index % 3].name}: message ${index}`,
+    emotes: [],
+    sentAt: 1_700_000_000_000 + index,
+    quality: 5,
+    difficulty: "medium",
+  }));
+  vi.spyOn(globalThis, "fetch").mockImplementation(
+    async (input) =>
+      new Response(
+        JSON.stringify(
+          String(input) === "/api/public-archive"
+            ? { channel: "example", roomId: "", chatters, quotes, range: null }
+            : [],
+        ),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+  );
+  render(<App />);
+  fireEvent.change(screen.getByLabelText("Twitch channel"), {
+    target: { value: "Example" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /open the case/i }));
+  await screen.findByLabelText(`Question 1 of ${roundCount}, score 0 of 0`);
+}
+
+function correctChoice() {
+  const author = screen
+    .getByText(/Clue from/)
+    .textContent?.match(/Clue from (Alice|Bob|Carol)/)?.[1];
+  if (!author) throw new Error("Missing clue author in the fixture");
+  return screen.getByRole("button", { name: author });
+}
 
 describe("Who Said It frontend", () => {
+  it("ignores the old playground query in the normal game", () => {
+    window.history.replaceState({}, "", "/?preview=streaks");
+    render(<App />);
+    expect(
+      screen.getByRole("heading", { name: /how well do you know/i }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("heading", { name: "Streak playground" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("link", { name: "Preview streak effects" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /5 .* On fire/ })).toBeNull();
+  });
+
+  it("opens the friends lobby from the game mode picker and returns to solo", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /play with friends/i }));
+    expect(
+      screen.getByRole("heading", { name: /friendly rivalry/i }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /back to solo/i }));
+    expect(
+      screen.getByRole("heading", { name: /how well do you know/i }),
+    ).toBeTruthy();
+  });
+
+  it("opens an invite directly in the join form", () => {
+    window.history.replaceState({}, "", "/?room=ABC234");
+    render(<App />);
+    expect(
+      screen.getByRole("heading", { name: /friendly rivalry/i }),
+    ).toBeTruthy();
+    expect((screen.getByLabelText("Room code") as HTMLInputElement).value).toBe(
+      "ABC234",
+    );
+  });
+
   it("renders the setup surface", () => {
     const currentYear = new Date().getUTCFullYear();
     render(<App />);
@@ -35,6 +151,7 @@ describe("Who Said It frontend", () => {
   });
 
   it("issues the same-origin public archive request", async () => {
+    render(<App />);
     const currentYear = new Date().getUTCFullYear();
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
@@ -79,6 +196,7 @@ describe("Who Said It frontend", () => {
   });
 
   it("shows an unavailable calendar year without starting a game", async () => {
+    render(<App />);
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       if (String(input) === "/api/public-archive") {
         return new Response(
@@ -106,6 +224,7 @@ describe("Who Said It frontend", () => {
   });
 
   it("opens the game without waiting for the optional profile lookup", async () => {
+    render(<App />);
     const chatters = ["Alice", "Bob", "Carol"].map((name, index) => ({
       id: String(index),
       name,
@@ -185,5 +304,177 @@ describe("Who Said It frontend", () => {
     expect(nextQuote).not.toBe(firstQuote);
     expect(nextQuote.textContent).not.toBe(firstMessage);
     expect(screen.getByRole("main").getAttribute("translate")).toBe("no");
+  });
+
+  it("ignites at five, upgrades at ten, and preserves the best streak after a miss", async () => {
+    await startGame();
+    for (let question = 1; question <= 16; question++) {
+      if (question === 6) {
+        const correctButton = correctChoice();
+        fireEvent.click(
+          screen
+            .getAllByRole("button")
+            .find(
+              (button) =>
+                button !== correctButton &&
+                /^(Alice|Bob|Carol)$/.test(
+                  button.textContent
+                    ?.replace(/^[A-Z]{2}/, "")
+                    .replace(/[123]$/, "") ?? "",
+                ),
+            )!,
+        );
+        expect(screen.queryByLabelText(/Current streak/)).toBeNull();
+        expect(document.querySelector(".streak-fire")).toBeNull();
+      } else {
+        const choice = correctChoice();
+        if (question % 2 === 0) {
+          fireEvent.keyDown(window, {
+            key: choice.querySelector(".choice-key")?.textContent,
+          });
+        } else {
+          fireEvent.click(choice);
+        }
+        if (question === 4)
+          expect(document.querySelector(".streak-fire")).toBeNull();
+        if (question === 5) {
+          expect(screen.getByText("You're on fire")).toBeTruthy();
+          expect(screen.getByText("5 correct in a row")).toBeTruthy();
+          expect(document.querySelector(".streak-fire")).toBeTruthy();
+        }
+        if (question === 16) {
+          expect(screen.getByText("Unstoppable")).toBeTruthy();
+          expect(document.querySelector(".streak-fire--inferno")).toBeTruthy();
+        }
+      }
+      fireEvent.click(
+        screen.getByRole("button", { name: /next message|see results/i }),
+      );
+    }
+    expect(screen.getByRole("heading", { name: "15 / 16" })).toBeTruthy();
+    expect(screen.getByText("94%")).toBeTruthy();
+    expect(
+      screen.getByText("Best streak").nextElementSibling?.textContent,
+    ).toBe("10");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Try another channel" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /open the case/i }));
+    expect(
+      await screen.findByLabelText("Question 1 of 16, score 0 of 0"),
+    ).toBeTruthy();
+  });
+
+  it("plays each milestone jingle once instead of the normal answer sound", async () => {
+    await startGame(15);
+    expect(prepareAudio).toHaveBeenCalledOnce();
+    for (let count = 1; count <= 15; count++) {
+      const choice = correctChoice();
+      fireEvent.click(choice);
+      fireEvent.click(choice);
+      if (count < 15)
+        fireEvent.click(screen.getByRole("button", { name: /next message/i }));
+    }
+    expect(vi.mocked(playStreakSound).mock.calls).toEqual([[5], [10], [15]]);
+    expect(playAnswerSound).toHaveBeenCalledTimes(12);
+    expect(screen.getByText("Chat legend")).toBeTruthy();
+  });
+
+  it("uses one answer path and ignores editable targets, key repeats, and native button activation", async () => {
+    await startGame(3);
+    render(
+      <>
+        <input aria-label="Other input" />
+        <select aria-label="Other select">
+          <option>1</option>
+        </select>
+        <div contentEditable data-testid="editable" />
+      </>,
+    );
+    const choice = correctChoice();
+    const key = choice.querySelector(".choice-key")?.textContent;
+    fireEvent.keyDown(screen.getByLabelText("Other input"), { key });
+    fireEvent.keyDown(screen.getByLabelText("Other select"), { key });
+    fireEvent.keyDown(screen.getByTestId("editable"), { key });
+    fireEvent.keyDown(window, { key, repeat: true });
+    fireEvent.keyDown(window, { key, ctrlKey: true });
+    fireEvent.keyDown(window, { key, altKey: true });
+    fireEvent.keyDown(window, { key, metaKey: true });
+    expect(screen.getByLabelText("Question 1 of 3, score 0 of 0")).toBeTruthy();
+    fireEvent.keyDown(window, { key });
+    fireEvent.click(choice);
+    expect(screen.getByLabelText("Question 1 of 3, score 1 of 1")).toBeTruthy();
+    expect(screen.getByLabelText("Question 1 of 3, score 1 of 1")).toBeTruthy();
+    const nextButton = screen.getByRole("button", { name: /next message/i });
+    fireEvent.keyDown(nextButton, { key: "Enter" });
+    expect(screen.getByLabelText("Question 1 of 3, score 1 of 1")).toBeTruthy();
+    fireEvent.click(nextButton);
+    expect(screen.getByLabelText("Question 2 of 3, score 1 of 1")).toBeTruthy();
+    fireEvent.click(correctChoice());
+    fireEvent.keyDown(window, { key: " ", repeat: true });
+    expect(screen.getByLabelText("Question 2 of 3, score 2 of 2")).toBeTruthy();
+    fireEvent.keyDown(window, { key: " " });
+    expect(screen.getByLabelText("Question 3 of 3, score 2 of 2")).toBeTruthy();
+  });
+
+  it("persists sound and effects controls and allows effects to be disabled mid-streak", async () => {
+    await startGame(6);
+    fireEvent.click(screen.getByRole("button", { name: "Sound" }));
+    for (let count = 1; count <= 5; count++) {
+      fireEvent.click(correctChoice());
+      if (count < 5)
+        fireEvent.click(screen.getByRole("button", { name: /next message/i }));
+    }
+    expect(document.querySelector(".streak-fire")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Visual effects" }));
+    expect(document.querySelector(".streak-fire")).toBeNull();
+    expect(screen.getByLabelText("Question 5 of 6, score 5 of 5")).toBeTruthy();
+    expect(localStorage.getItem("knowthechat-sound")).toBe("false");
+    expect(stopAudio).toHaveBeenCalledOnce();
+    expect(playAnswerSound).not.toHaveBeenCalled();
+    expect(playStreakSound).not.toHaveBeenCalled();
+    expect(localStorage.getItem("knowthechat-effects")).toBe("false");
+    cleanup();
+    render(<App />);
+    expect(
+      screen
+        .getByRole("button", { name: "Sound" })
+        .getAttribute("aria-pressed"),
+    ).toBe("false");
+    expect(
+      screen
+        .getByRole("button", { name: "Visual effects" })
+        .getAttribute("aria-pressed"),
+    ).toBe("false");
+  });
+
+  it("starts and plays when local history is malformed or storage writes fail", async () => {
+    localStorage.setItem("knowthechat-seen:example", '{"unexpected":"object"}');
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("Storage unavailable");
+    });
+    await startGame(3);
+    fireEvent.click(screen.getByRole("button", { name: "Sound" }));
+    expect(
+      screen
+        .getByRole("button", { name: "Sound" })
+        .getAttribute("aria-pressed"),
+    ).toBe("false");
+    fireEvent.click(correctChoice());
+    expect(screen.getByLabelText("Question 1 of 3, score 1 of 1")).toBeTruthy();
+  });
+
+  it("recovers from archive network failures with a retryable error", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Offline"));
+    render(<App />);
+    fireEvent.change(screen.getByLabelText("Twitch channel"), {
+      target: { value: "Example" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /open the case/i }));
+    expect(await screen.findByRole("alert")).toHaveProperty(
+      "textContent",
+      "Could not load the archive. Check your connection and try again.",
+    );
+    expect(screen.getByRole("button", { name: /open the case/i })).toBeTruthy();
   });
 });

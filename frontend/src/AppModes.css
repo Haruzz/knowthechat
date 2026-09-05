@@ -1,0 +1,72 @@
+.play-mode-picker {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  max-width: 640px;
+  margin: 26px auto 0;
+}
+
+.play-mode-picker button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 18px 14px;
+  border: 1px solid #4a415e;
+  border-radius: 13px;
+  background: #211b32;
+  color: #d6cbe4;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.play-mode-picker button[aria-pressed="true"] {
+  background: #33264e;
+  border-color: #9473f6;
+}
+
+.play-mode-picker button:hover {
+  border-color: #ac8eff;
+}
+
+.play-mode-picker button:focus-visible {
+  outline: 3px solid #b7a5ff;
+  outline-offset: 3px;
+}
+
+.play-mode-picker strong,
+.play-mode-picker small {
+  display: block;
+}
+
+.play-mode-picker button > span:last-child {
+  min-width: 0;
+}
+
+.play-mode-picker strong {
+  color: #f7f3ff;
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.play-mode-picker small {
+  margin-top: 5px;
+  color: #b5a8c5;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+@media (max-width: 420px) {
+  .play-mode-picker button {
+    gap: 6px;
+    padding-inline: 8px;
+  }
+  .play-mode-picker strong {
+    font-size: 16px;
+  }
+  .play-mode-picker small {
+    font-size: 11px;
+  }
+}

@@ -43,7 +43,7 @@ export default function PrivacyPage() {
             affiliated with or endorsed by Twitch, Amazon, featured streamers,
             or the archive and emote providers it uses.
           </p>
-          <p className="privacy-updated">Effective September 3, 2026</p>
+          <p className="privacy-updated">Effective September 5, 2026</p>
         </header>
 
         <section>
@@ -62,9 +62,58 @@ export default function PrivacyPage() {
           <p>
             The game stores a per-channel list of previously seen message
             identifiers in your browser&apos;s local storage to reduce repeated
-            rounds. You can remove this information using your browser&apos;s
-            site data controls. Google&apos;s consent platform may also store
-            your privacy choices so it can remember them.
+            rounds, along with sound and visual-effects preferences. You can
+            remove this information using your browser&apos;s site data
+            controls. Google&apos;s consent platform may also store your privacy
+            choices so it can remember them.
+          </p>
+          <p>
+            A multiplayer room code and session token are stored in the browser
+            tab&apos;s session storage to allow reconnection. Leaving clears the
+            saved player session. Invite links contain a room code, not this
+            token. Anyone with the room code can join while the room is
+            accepting players; these are casual private rooms without Twitch
+            accounts.
+          </p>
+        </section>
+
+        <section>
+          <h2>Private multiplayer rooms</h2>
+          <p>
+            Private multiplayer rooms store chosen display names, player-session
+            token hashes, selected public chat clues, guesses, scores, and
+            timestamps in Cloudflare Durable Object storage. Other room
+            participants can see display names, scores, and revealed guesses.
+            Rooms expire after two hours; active room data is deleted on expiry
+            or when the last participant leaves. Cloudflare platform backup and
+            recovery retention may outlast application deletion.
+          </p>
+          <p>
+            Rooms also store the original archive settings and hashes of up to
+            2,000 recently used quote texts to avoid repeats in rematches. This
+            internal quote history is not sent to players and is deleted with
+            the room, within its two-hour lifetime.
+          </p>
+        </section>
+
+        <section>
+          <h2>Multiplayer admission controls</h2>
+          <p>
+            To limit repeated room creation, the application derives a SHA-256
+            hash from the requesting network&apos;s IP address. This is a
+            pseudonymous identifier, not anonymous data. Admission storage keeps
+            the hash and request time for a 60-second creation window and
+            schedules their deletion when that window ends. It does not store
+            the unhashed IP address.
+          </p>
+          <p>
+            Separate admission records contain reservation identifiers and
+            timestamps for room preparations and new matches, including
+            rematches. These records are scheduled for deletion after 24 hours.
+            Open-room reservations expire with the room or are released when it
+            closes; abandoned preparations expire after two minutes. Cleanup
+            runs on requests and scheduled alarms. Cloudflare platform backup
+            and recovery retention may outlast application deletion.
           </p>
         </section>
 
@@ -143,11 +192,11 @@ export default function PrivacyPage() {
         <section>
           <h2>Retention and your choices</h2>
           <p>
-            Browser data remains until you clear it. Operational information and
-            information processed by independent providers are retained
-            according to their respective settings and policies. You can decline
-            or manage advertising consent when the Google message is presented,
-            use an available &ldquo;Do Not Sell or Share My Personal
+            Local storage data remains until you clear it. Operational
+            information and information processed by independent providers are
+            retained according to their respective settings and policies. You
+            can decline or manage advertising consent when the Google message is
+            presented, use an available &ldquo;Do Not Sell or Share My Personal
             Information&rdquo; link to exercise an applicable US-state opt-out,
             and use browser controls to block or delete cookies and local
             storage.
