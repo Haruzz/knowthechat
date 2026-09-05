@@ -8,9 +8,11 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
+import * as PartyGameModule from "./PartyGame";
 import { useMusic } from "./music";
 import {
   playAnswerSound,
+  playCountdownTick,
   playStreakSound,
   prepareAudio,
   stopAudio,
@@ -18,6 +20,7 @@ import {
 vi.mock("./audio", () => ({
   prepareAudio: vi.fn(),
   playAnswerSound: vi.fn(),
+  playCountdownTick: vi.fn(),
   playStreakSound: vi.fn(),
   stopAudio: vi.fn(),
 }));
@@ -88,6 +91,29 @@ function correctChoice() {
 }
 
 describe("Who Said It frontend", () => {
+  it("gates multiplayer countdown ticks with sound effects independently of music", () => {
+    vi.spyOn(PartyGameModule, "default").mockImplementation(
+      ({ preferences, onCountdownTick }) => (
+        <>
+          {preferences}
+          <button onClick={() => onCountdownTick?.(5)}>Countdown cue</button>
+        </>
+      ),
+    );
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: /play with friends/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Countdown cue" }));
+    expect(playCountdownTick).toHaveBeenCalledExactlyOnceWith(5);
+    fireEvent.click(screen.getByRole("button", { name: "Music" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sound effects" }));
+    fireEvent.click(screen.getByRole("button", { name: "Countdown cue" }));
+    expect(playCountdownTick).toHaveBeenCalledOnce();
+    expect(stopAudio).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "Sound effects" }));
+    fireEvent.click(screen.getByRole("button", { name: "Countdown cue" }));
+    expect(playCountdownTick).toHaveBeenCalledTimes(2);
+  });
+
   it("starts music off and remembers music and volume independently from sound effects across modes", () => {
     render(<App />);
     expect(

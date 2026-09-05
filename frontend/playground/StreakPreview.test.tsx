@@ -7,7 +7,13 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import StreakPreview from "./StreakPreview";
-import { playAnswerSound, playStreakSound, stopAudio } from "../src/audio";
+import {
+  playAnswerSound,
+  playCountdownTick,
+  playStreakSound,
+  prepareAudio,
+  stopAudio,
+} from "../src/audio";
 import { useMusic } from "../src/music";
 const music = vi.hoisted(() => ({ prepare: vi.fn(), duck: vi.fn() }));
 vi.mock("../src/music", () => ({
@@ -16,6 +22,7 @@ vi.mock("../src/music", () => ({
 vi.mock("../src/audio", () => ({
   prepareAudio: vi.fn(),
   playAnswerSound: vi.fn(),
+  playCountdownTick: vi.fn(),
   playStreakSound: vi.fn(),
   stopAudio: vi.fn(),
 }));
@@ -26,6 +33,67 @@ afterEach(() => {
 });
 
 describe("local streak playground", () => {
+  it("auditions five countdown cues without enabling music and stops at zero", async () => {
+    vi.useFakeTimers();
+    render(<StreakPreview />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Try 5-second countdown" }),
+    );
+    expect(prepareAudio).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText("Countdown seconds").textContent).toBe("5");
+    expect(playCountdownTick).toHaveBeenCalledExactlyOnceWith(5);
+    for (let remaining = 4; remaining >= 0; remaining -= 1) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+      expect(screen.getByLabelText("Countdown seconds").textContent).toBe(
+        String(remaining),
+      );
+    }
+    expect(vi.mocked(playCountdownTick).mock.calls).toEqual([
+      [5],
+      [4],
+      [3],
+      [2],
+      [1],
+    ]);
+    expect(useMusic).toHaveBeenLastCalledWith({
+      enabled: false,
+      volume: 0.35,
+      scene: "gameplay",
+      urgent: false,
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(playCountdownTick).toHaveBeenCalledTimes(5);
+  });
+
+  it("respects SFX mute and cancels the audition when a guess is made", async () => {
+    vi.useFakeTimers();
+    render(<StreakPreview />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Try 5-second countdown" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Sound effects" }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(playCountdownTick).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Correct guess +1" }));
+    expect(screen.queryByLabelText("Countdown seconds")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Sound effects" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Try 5-second countdown" }),
+    );
+    expect(playCountdownTick).toHaveBeenLastCalledWith(5);
+    fireEvent.click(screen.getByRole("button", { name: "Correct guess +1" }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(playCountdownTick).toHaveBeenCalledTimes(2);
+  });
+
   it("starts music off and auditions lobby, gameplay and final seconds locally", () => {
     render(<StreakPreview />);
     expect(useMusic).toHaveBeenLastCalledWith({

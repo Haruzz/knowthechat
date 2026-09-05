@@ -12,6 +12,7 @@ import PartyGame from "./PartyGame";
 import { useMusic, type MusicScene } from "./music";
 import {
   playAnswerSound,
+  playCountdownTick,
   playStreakSound,
   prepareAudio,
   stopAudio,
@@ -361,6 +362,12 @@ export default function App() {
     },
     [soundEnabled, duckMusic],
   );
+  const countdownTick = useCallback(
+    (secondsLeft: number) => {
+      if (soundEnabled) playCountdownTick(secondsLeft);
+    },
+    [soundEnabled],
+  );
 
   const answer = useCallback(
     (name: string) => {
@@ -630,6 +637,7 @@ export default function App() {
         onRoundRevealed={answerSound}
         onInteraction={prepareGameAudio}
         onMusicStateChange={updatePartyMusic}
+        onCountdownTick={countdownTick}
       />
     );
 

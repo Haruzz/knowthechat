@@ -2,7 +2,7 @@
 # requires-python = ">=3.13"
 # dependencies = ["soundfile==0.13.1", "numpy==2.4.3"]
 # ///
-"""Rebuild the two CC0 music assets with `uv run scripts/prepare-music.py`."""
+"""Rebuild the CC0 music assets with `uv run scripts/prepare-music.py`."""
 
 import hashlib
 import io
@@ -19,10 +19,25 @@ SOURCES = {
         "Week%201.5%20-%20Super%20Retro%20Lounge.ogg",
         "fc84b6b9b0dd8e533b1e7b561ea1ee19899d5784100b4e579c389b99d11745b1",
     ),
-    "gameplay": (
+    "gameplay-penguin-town": (
         "https://html-classic.itch.zone/html/9601284-1755490/media/Scritch/"
-        "Week%2026%20-%20Seaside%20ENDLESS%20WAVES.ogg",
-        "39ba6c31b4f8c81cbe40214fb7a57bd2c3281cae2b9b4eeb18f94134c0da8b52",
+        "Three%20Red%20Hearts%20Penguin%20Town.ogg",
+        "16a7063312bbbabdc449cb847cc040dcdef652d6a1db9385ad5e09ecfafe3753",
+    ),
+    "gameplay-sanctuary": (
+        "https://html-classic.itch.zone/html/9601284-1755490/media/Scritch/"
+        "Three%20Red%20Hearts%20Sanctuary.ogg",
+        "2025ea863cecf0d36bc641a30f30ef99e451ee8cfd02f1be9c7d1d02c4d336f1",
+    ),
+    "gameplay-sketchbook-2025-12-11": (
+        "https://html-classic.itch.zone/html/9601284-1755490/media/Scritch/"
+        "Sketchbook%202025-12-11_VERSE.ogg",
+        "bd591023da07f8d2364ced3cde737eef2e89d50ea47511a1a954dfdcdb69bf48",
+    ),
+    "gameplay-sketchbook-2024-10-14": (
+        "https://html-classic.itch.zone/html/9601284-1755490/media/Scritch/"
+        "Sketchbook%202024-10-14.ogg",
+        "7bf6e2d1b7ea7075739d911bae3ba32be0743d78ca76a5c159e7d8e6d0ae15a0",
     ),
 }
 

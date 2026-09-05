@@ -63,6 +63,63 @@ afterEach(() => {
 });
 
 describe("game audio", () => {
+  it("makes short quiet alternating countdown ticks and ignores expired or hidden ticks", async () => {
+    const { prepareAudio, playCountdownTick, stopAudio } =
+      await import("./audio");
+    prepareAudio();
+    const audio = MockAudioContext.instances[0];
+    for (const second of [5, 4, 3, 2, 1]) playCountdownTick(second);
+    expect(
+      audio.oscillators.map(
+        (oscillator) => oscillator.frequency.setValueAtTime.mock.calls[0][0],
+      ),
+    ).toEqual([880, 660, 880, 660, 880]);
+    for (const [index, oscillator] of audio.oscillators.entries()) {
+      expect(oscillator.stop.mock.calls[0][0]).toBeLessThan(
+        audio.currentTime + 0.1,
+      );
+      expect(
+        audio.gains[index].gain.linearRampToValueAtTime.mock.calls[0][0],
+      ).toBe(0.035);
+    }
+    for (const second of [0, 6, -1, NaN, 2.5]) playCountdownTick(second);
+    vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    playCountdownTick(3);
+    expect(audio.oscillators).toHaveLength(5);
+    stopAudio();
+    expect(audio.oscillators.at(-1)?.disconnect).toHaveBeenCalledOnce();
+    vi.restoreAllMocks();
+  });
+
+  it("drops ticks until audio is running without queuing them or opening a context", async () => {
+    const { prepareAudio, playCountdownTick } = await import("./audio");
+    playCountdownTick(5);
+    expect(MockAudioContext.instances).toHaveLength(0);
+    prepareAudio();
+    const audio = MockAudioContext.instances[0];
+    audio.state = "suspended";
+    let allowPlayback!: () => void;
+    audio.resume.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          allowPlayback = () => {
+            audio.state = "running";
+            resolve();
+          };
+        }),
+    );
+    prepareAudio();
+    playCountdownTick(5);
+    playCountdownTick(4);
+    expect(audio.resume).toHaveBeenCalledOnce();
+    allowPlayback();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(audio.oscillators).toHaveLength(0);
+    playCountdownTick(3);
+    expect(audio.oscillators).toHaveLength(1);
+  });
+
   it("gives each milestone a distinct melody and keeps later milestones legendary", async () => {
     const { playStreakSound } = await import("./audio");
     playStreakSound(4);

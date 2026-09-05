@@ -3,11 +3,13 @@ import { useEffect, useRef, useState } from "react";
 import StreakEffects, { GamePreferences } from "../src/StreakEffects";
 import {
   playAnswerSound,
+  playCountdownTick,
   playStreakSound,
   prepareAudio,
   stopAudio,
 } from "../src/audio";
 import { useMusic } from "../src/music";
+import { useCountdownTicks } from "../src/useCountdownTicks";
 import "./StreakPreview.css";
 
 export default function StreakPreview() {
@@ -16,6 +18,22 @@ export default function StreakPreview() {
   const [effectsEnabled, setEffectsEnabled] = useState(true);
   const [musicEnabled, setMusicEnabled] = useState(false);
   const [musicVolume, setMusicVolume] = useState(0.35);
+  const [countdown, setCountdown] = useState<{
+    id: number;
+    deadline: number;
+  } | null>(null);
+  const [countdownNow, setCountdownNow] = useState(Date.now);
+  const countdownSequence = useRef(0);
+  const countdownSeconds = countdown
+    ? Math.max(0, Math.ceil((countdown.deadline - countdownNow) / 1_000))
+    : 0;
+  useCountdownTicks({
+    roundId: countdown ? `preview-${countdown.id}` : null,
+    deadline: countdown?.deadline ?? null,
+    enabled: soundEnabled && countdownSeconds > 0,
+    onTick: playCountdownTick,
+    playOnStart: true,
+  });
   const [musicPreview, setMusicPreview] = useState<
     "lobby" | "gameplay" | "urgent"
   >("lobby");
@@ -23,7 +41,7 @@ export default function StreakPreview() {
     enabled: musicEnabled,
     volume: musicVolume,
     scene: musicPreview === "lobby" ? "lobby" : "gameplay",
-    urgent: musicPreview === "urgent",
+    urgent: musicPreview === "urgent" && (!countdown || countdownSeconds > 0),
   });
   const [celebration, setCelebration] = useState<{
     count: number;
@@ -32,6 +50,7 @@ export default function StreakPreview() {
   const sequence = useRef(0);
 
   function celebrate(count: number) {
+    setCountdown(null);
     setCelebration({ count, sequence: ++sequence.current });
     if (soundEnabled) {
       music.duck();
@@ -43,16 +62,27 @@ export default function StreakPreview() {
     celebrate(count);
   }
   function correct() {
+    setCountdown(null);
     const next = streak + 1;
     setStreak(next);
     if (next % 5 === 0) celebrate(next);
     else if (soundEnabled) playAnswerSound(true);
   }
   function wrong() {
+    setCountdown(null);
     if (soundEnabled) playAnswerSound(false);
     setStreak(0);
     setCelebration(null);
   }
+  useEffect(() => {
+    if (!countdown) return;
+    const timer = window.setInterval(() => {
+      const currentTime = Date.now();
+      setCountdownNow(currentTime);
+      if (currentTime >= countdown.deadline) window.clearInterval(timer);
+    }, 200);
+    return () => window.clearInterval(timer);
+  }, [countdown]);
   useEffect(() => {
     if (!celebration) return;
     const timer = window.setTimeout(() => setCelebration(null), 3_500);
@@ -150,6 +180,7 @@ export default function StreakPreview() {
                 type="button"
                 aria-pressed={musicPreview === scene}
                 onClick={() => {
+                  setCountdown(null);
                   if (musicEnabled) music.prepare();
                   setMusicPreview(scene);
                 }}
@@ -158,6 +189,34 @@ export default function StreakPreview() {
               </button>
             ))}
           </div>
+          <div className="preview-actions">
+            <button
+              type="button"
+              className="preview-secondary"
+              onClick={() => {
+                if (soundEnabled) prepareAudio();
+                if (musicEnabled) music.prepare();
+                const currentTime = Date.now();
+                setCountdownNow(currentTime);
+                setCountdown({
+                  id: ++countdownSequence.current,
+                  deadline: currentTime + 5_000,
+                });
+                setMusicPreview("urgent");
+              }}
+            >
+              Try 5-second countdown
+            </button>
+          </div>
+          {countdown && (
+            <p className="preview-count">
+              Seconds left:{" "}
+              <output aria-label="Countdown seconds">{countdownSeconds}</output>
+            </p>
+          )}
+          <p className="preview-note">
+            The countdown uses SFX. Try a guess or celebration to stop it early.
+          </p>
           <p className="preview-note">
             This playground uses a sample clue and does not change your game
             scores. Your device’s reduced-motion preference still applies.

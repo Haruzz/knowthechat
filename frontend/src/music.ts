@@ -9,11 +9,25 @@ type MusicOptions = {
   urgent: boolean;
 };
 
-type Track = Exclude<MusicScene, "silent">;
-type Voice = { source: AudioBufferSourceNode; gain: GainNode };
+const GAMEPLAY_TRACKS = [
+  "penguin-town",
+  "sanctuary",
+  "sketchbook-2025-12-11",
+  "sketchbook-2024-10-14",
+] as const;
+type GameplayTrack = (typeof GAMEPLAY_TRACKS)[number];
+type Track = "lobby" | GameplayTrack;
+type Voice = { source: AudioBufferSourceNode; gain: GainNode; track: Track };
+type Download = {
+  controller: AbortController;
+  promise: Promise<AudioBuffer | null>;
+};
 const TRACKS: Record<Track, string> = {
   lobby: "/audio/lobby.mp3",
-  gameplay: "/audio/gameplay.mp3",
+  "penguin-town": "/audio/gameplay-penguin-town.mp3",
+  sanctuary: "/audio/gameplay-sanctuary.mp3",
+  "sketchbook-2025-12-11": "/audio/gameplay-sketchbook-2025-12-11.mp3",
+  "sketchbook-2024-10-14": "/audio/gameplay-sketchbook-2024-10-14.mp3",
 };
 const FADE_SECONDS = 0.4;
 
@@ -28,7 +42,11 @@ class MusicPlayer {
   private audio: AudioContext | null = null;
   private master: GainNode | null = null;
   private buffers = new Map<Track, AudioBuffer>();
-  private loading: AbortController | null = null;
+  private downloads = new Map<Track, Download>();
+  private failed = new Set<Track>();
+  private playlist: GameplayTrack[] = [];
+  private gameplayTrack: GameplayTrack | null = null;
+  private lastPlayed: GameplayTrack | null = null;
   private request = 0;
   private disposed = false;
   private hidden = document.hidden;
@@ -57,8 +75,7 @@ class MusicPlayer {
     try {
       if (this.audio?.state === "closed") {
         this.request += 1;
-        this.loading?.abort();
-        this.loading = null;
+        this.abortDownloads();
         for (const voice of this.voices.keys()) this.release(voice);
         this.buffers.clear();
         this.master?.disconnect();
@@ -102,6 +119,7 @@ class MusicPlayer {
     const changed =
       options.enabled !== this.options.enabled ||
       options.scene !== this.options.scene;
+    if (options.enabled && !this.options.enabled) this.failed.clear();
     this.options = options;
     if (changed) this.cancelPlayback(this.canPlay);
     this.updateVolume();
@@ -109,53 +127,150 @@ class MusicPlayer {
   }
 
   private playCurrent(): void {
-    if (!this.canPlay || this.current || this.loading) return;
+    if (!this.canPlay || this.current) return;
     const audio = this.getContext();
     const scene = this.options.scene;
     if (!audio || scene === "silent") return;
-    const buffer = this.buffers.get(scene);
+    if (scene === "gameplay" && !this.gameplayTrack) {
+      this.gameplayTrack = this.nextTrack();
+    }
+    const track = scene === "lobby" ? "lobby" : this.gameplayTrack;
+    if (!track || this.failed.has(track)) return;
+    const buffer = this.buffers.get(track);
     if (buffer) {
-      if (audio.state === "running") this.start(audio, buffer);
+      if (audio.state === "running") this.start(audio, buffer, track);
       return;
     }
-    const controller = new AbortController();
-    this.loading = controller;
     const request = this.request;
-    void (async () => {
-      try {
-        const response = await fetch(TRACKS[scene], {
-          signal: controller.signal,
-        });
-        if (!response.ok) return;
-        const bytes = await response.arrayBuffer();
-        if (controller.signal.aborted) return;
-        const decoded = await audio.decodeAudioData(bytes);
-        if (controller.signal.aborted || this.disposed) return;
-        this.buffers.set(scene, decoded);
-        if (
-          request === this.request &&
-          this.canPlay &&
-          audio.state === "running"
-        ) {
-          this.start(audio, decoded);
-        }
-      } catch {
-        // A missing or undecodable track leaves the game playable and silent.
-      } finally {
-        if (this.loading === controller) this.loading = null;
+    void this.loadTrack(audio, track).then((decoded) => {
+      if (
+        request !== this.request ||
+        !this.canPlay ||
+        scene !== this.options.scene
+      )
+        return;
+      if (decoded) {
+        if (audio.state === "running") this.start(audio, decoded, track);
+      } else if (track === this.gameplayTrack) {
+        this.gameplayTrack = null;
+        this.playCurrent();
       }
-    })();
+    });
   }
 
-  private start(audio: AudioContext, buffer: AudioBuffer): void {
+  private peekNextTrack(): GameplayTrack | null {
+    this.playlist = this.playlist.filter((track) => !this.failed.has(track));
+    if (!this.playlist.length) {
+      this.playlist = GAMEPLAY_TRACKS.filter(
+        (track) => !this.failed.has(track),
+      );
+      for (let index = this.playlist.length - 1; index > 0; index -= 1) {
+        const swap = Math.floor(Math.random() * (index + 1));
+        [this.playlist[index], this.playlist[swap]] = [
+          this.playlist[swap],
+          this.playlist[index],
+        ];
+      }
+      if (this.playlist.length > 1 && this.playlist[0] === this.lastPlayed) {
+        [this.playlist[0], this.playlist[1]] = [
+          this.playlist[1],
+          this.playlist[0],
+        ];
+      }
+    }
+    return this.playlist[0] ?? null;
+  }
+
+  private nextTrack(): GameplayTrack | null {
+    const track = this.peekNextTrack();
+    if (track) this.playlist.shift();
+    return track;
+  }
+
+  private trimBuffers(): void {
+    for (const track of this.buffers.keys()) {
+      if (
+        track !== "lobby" &&
+        track !== this.gameplayTrack &&
+        track !== this.playlist[0]
+      ) {
+        this.buffers.delete(track);
+      }
+    }
+  }
+
+  private loadTrack(
+    audio: AudioContext,
+    track: Track,
+  ): Promise<AudioBuffer | null> {
+    const existing = this.downloads.get(track);
+    if (existing) return existing.promise;
+    const cached = this.buffers.get(track);
+    if (cached) return Promise.resolve(cached);
+    if (this.failed.has(track)) return Promise.resolve(null);
+    const controller = new AbortController();
+    const request = this.request;
+    this.trimBuffers();
+    const promise = (async () => {
+      try {
+        const response = await fetch(TRACKS[track], {
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error("Music unavailable");
+        const bytes = await response.arrayBuffer();
+        if (controller.signal.aborted) return null;
+        const decoded = await audio.decodeAudioData(bytes);
+        if (
+          controller.signal.aborted ||
+          this.disposed ||
+          request !== this.request
+        )
+          return null;
+        this.buffers.set(track, decoded);
+        return decoded;
+      } catch {
+        // Try each unavailable track once; an explicit off/on toggle retries it.
+        if (!controller.signal.aborted && request === this.request)
+          this.failed.add(track);
+        return null;
+      } finally {
+        if (this.downloads.get(track)?.controller === controller)
+          this.downloads.delete(track);
+      }
+    })();
+    this.downloads.set(track, { controller, promise });
+    return promise;
+  }
+
+  private preloadNext(audio: AudioContext): void {
+    const track = this.peekNextTrack();
+    if (!track) return;
+    const request = this.request;
+    void this.loadTrack(audio, track).then((buffer) => {
+      if (
+        !buffer &&
+        request === this.request &&
+        this.canPlay &&
+        this.options.scene === "gameplay"
+      ) {
+        this.preloadNext(audio);
+      }
+    });
+  }
+
+  private start(audio: AudioContext, buffer: AudioBuffer, track: Track): void {
     if (this.current || !this.master) return;
     let voice: Voice | null = null;
     try {
-      voice = { source: audio.createBufferSource(), gain: audio.createGain() };
+      voice = {
+        source: audio.createBufferSource(),
+        gain: audio.createGain(),
+        track,
+      };
       this.voices.set(voice, null);
       const current = voice;
       current.source.buffer = buffer;
-      current.source.loop = true;
+      current.source.loop = track === "lobby";
       current.source.connect(current.gain);
       current.gain.connect(this.master);
       current.gain.gain.setValueAtTime(0, audio.currentTime);
@@ -163,10 +278,36 @@ class MusicPlayer {
         1,
         audio.currentTime + FADE_SECONDS,
       );
-      current.source.onended = () => this.release(current);
+      if (track !== "lobby") {
+        // Play the whole selection, smoothing its ending into the next track.
+        current.gain.gain.setValueAtTime(
+          1,
+          audio.currentTime + buffer.duration - FADE_SECONDS,
+        );
+        current.gain.gain.linearRampToValueAtTime(
+          0,
+          audio.currentTime + buffer.duration,
+        );
+      }
+      current.source.onended = () => {
+        const advance =
+          this.current === current &&
+          current.track !== "lobby" &&
+          this.canPlay &&
+          this.options.scene === "gameplay";
+        this.release(current);
+        if (advance) {
+          this.gameplayTrack = null;
+          this.playCurrent();
+        }
+      };
       current.source.start();
       this.current = current;
       this.updateVolume();
+      if (track !== "lobby") {
+        this.lastPlayed = track;
+        this.preloadNext(audio);
+      }
     } catch {
       if (voice) this.release(voice);
     }
@@ -213,14 +354,14 @@ class MusicPlayer {
       /* Already stopped. */
     }
     voice.source.disconnect();
+    voice.source.buffer = null;
     voice.gain.disconnect();
     if (this.current === voice) this.current = null;
   }
 
   private cancelPlayback(fade: boolean): void {
     this.request += 1;
-    this.loading?.abort();
-    this.loading = null;
+    this.abortDownloads();
     // A final reveal can change scenes while its celebration is still playing.
     if (!fade) {
       if (this.duckTimer) clearTimeout(this.duckTimer);
@@ -247,6 +388,11 @@ class MusicPlayer {
     if (!this.canPlay && this.audio?.state === "running") {
       void this.audio.suspend().catch(() => {});
     }
+  }
+
+  private abortDownloads(): void {
+    for (const { controller } of this.downloads.values()) controller.abort();
+    this.downloads.clear();
   }
 
   private onGesture = (): void => {

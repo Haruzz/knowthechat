@@ -2,6 +2,8 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useMusic, type MusicScene } from "./music";
 
+type TestBuffer = AudioBuffer & { track: string };
+
 function parameter() {
   return {
     setValueAtTime: vi.fn(),
@@ -35,7 +37,10 @@ class MockAudioContext {
   destination = {};
   sources: MockSource[] = [];
   gains: MockGain[] = [];
-  decodeAudioData = vi.fn(async () => ({ duration: 30 }) as AudioBuffer);
+  decodeAudioData = vi.fn<(bytes: ArrayBuffer) => Promise<AudioBuffer>>(
+    async (bytes: ArrayBuffer) =>
+      ({ duration: 30, track: new TextDecoder().decode(bytes) }) as TestBuffer,
+  );
   resume = vi.fn(async () => {
     this.state = "running";
   });
@@ -73,13 +78,19 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-const response = () => ({
+const response = (track = "") => ({
   ok: true,
-  arrayBuffer: async () => new ArrayBuffer(8),
+  arrayBuffer: async () => new TextEncoder().encode(track).buffer,
 });
 const fetchMock = vi.fn<
   (url: string, init: RequestInit) => Promise<ReturnType<typeof response>>
->(async () => response());
+>(async (url) => response(url));
+const gameplayUrls = [
+  "/audio/gameplay-penguin-town.mp3",
+  "/audio/gameplay-sanctuary.mp3",
+  "/audio/gameplay-sketchbook-2025-12-11.mp3",
+  "/audio/gameplay-sketchbook-2024-10-14.mp3",
+];
 const options = (scene: MusicScene = "lobby", enabled = true) => ({
   enabled,
   scene,
@@ -91,6 +102,15 @@ const flush = () =>
     await Promise.resolve();
   });
 const currentAudio = () => MockAudioContext.instances.at(-1)!;
+const currentTrack = () =>
+  (
+    currentAudio().sources.at(-1)?.buffer as
+      (AudioBuffer & { track: string }) | null
+  )?.track;
+const finishTrack = async () => {
+  act(() => currentAudio().sources.at(-1)?.onended?.());
+  await flush();
+};
 const mix = () =>
   currentAudio().gains[0].gain.setTargetAtTime.mock.calls.at(-1)?.[0];
 
@@ -98,10 +118,11 @@ beforeEach(() => {
   vi.useFakeTimers();
   MockAudioContext.instances = [];
   MockAudioContext.initialState = "running";
-  fetchMock.mockReset().mockImplementation(async () => response());
+  fetchMock.mockReset().mockImplementation(async (url) => response(url));
   vi.stubGlobal("AudioContext", MockAudioContext);
   vi.stubGlobal("fetch", fetchMock);
   vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+  vi.spyOn(Math, "random").mockReturnValue(0.99);
 });
 
 afterEach(() => {
@@ -158,7 +179,7 @@ describe("background music", () => {
     act(() => vi.advanceTimersByTime(500));
     expect(audio.sources[1].disconnect).toHaveBeenCalledOnce();
     expect(audio.sources[2].disconnect).not.toHaveBeenCalled();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("ignores stale decode results after a scene change or turning music off", async () => {
@@ -280,7 +301,7 @@ describe("background music", () => {
     rerender({ ...options("gameplay"), volume: 0 });
     expect(mix()).toBe(0);
     expect(currentAudio().sources).toHaveLength(1);
-    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("keeps the final celebration ducked through the transition back to the lobby", async () => {
@@ -344,7 +365,8 @@ describe("background music", () => {
     );
     rerender(options("gameplay"));
     await flush();
-    expect(currentAudio().sources).toHaveLength(0);
+    expect(currentAudio().sources).toHaveLength(1);
+    expect(currentTrack()).toBe(gameplayUrls[1]);
     act(() => window.dispatchEvent(new Event("pointerdown")));
     await flush();
     expect(currentAudio().sources).toHaveLength(1);
@@ -361,9 +383,124 @@ describe("background music", () => {
     expect(closed.sources[0].disconnect).toHaveBeenCalledOnce();
     expect(currentAudio().sources).toHaveLength(1);
     expect(fetchMock).toHaveBeenLastCalledWith(
-      "/audio/gameplay.mp3",
+      gameplayUrls[1],
       expect.anything(),
     );
+  });
+
+  it("plays every complete gameplay track once per shuffle and avoids a repeat at the boundary", async () => {
+    const { rerender } = renderHook(useMusic, {
+      initialProps: options("gameplay"),
+    });
+    await flush();
+    const played = [currentTrack()];
+    expect(currentAudio().sources[0].loop).toBe(false);
+    expect(currentAudio().sources[0].stop).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(
+      gameplayUrls.slice(0, 2),
+    );
+    rerender({ ...options("gameplay"), volume: 0.2, urgent: true });
+    await flush();
+    expect(currentAudio().sources).toHaveLength(1);
+    for (let index = 0; index < 4; index += 1) {
+      // Make the next shuffle initially choose the last song of the first bag.
+      if (index === 2) vi.mocked(Math.random).mockReturnValueOnce(0);
+      await finishTrack();
+      played.push(currentTrack());
+    }
+    expect(played.slice(0, 4)).toEqual(gameplayUrls);
+    expect(played[4]).not.toBe(played[3]);
+    expect(played[4]).toBe(gameplayUrls[1]);
+    for (const source of currentAudio().sources.slice(0, -1)) {
+      expect(source.buffer).toBeNull();
+      expect(source.disconnect).toHaveBeenCalledOnce();
+    }
+  });
+
+  it("keeps the lobby cached while evicting completed gameplay tracks", async () => {
+    const { rerender } = renderHook(useMusic, { initialProps: options() });
+    await flush();
+    rerender(options("gameplay"));
+    await flush();
+    for (let index = 0; index < 4; index += 1) await finishTrack();
+    expect(
+      fetchMock.mock.calls.filter(([url]) => url === gameplayUrls[0]),
+    ).toHaveLength(2);
+    expect(currentTrack()).toBe(gameplayUrls[0]);
+    rerender(options());
+    await flush();
+    expect(currentTrack()).toBe("/audio/lobby.mp3");
+    expect(currentAudio().sources.at(-1)?.loop).toBe(true);
+    expect(
+      fetchMock.mock.calls.filter(([url]) => url === "/audio/lobby.mp3"),
+    ).toHaveLength(1);
+  });
+
+  it("aborts a prefetched track when disabled and never plays its stale result", async () => {
+    const pending = deferred<ReturnType<typeof response>>();
+    fetchMock.mockImplementation((url) =>
+      url === gameplayUrls[1]
+        ? pending.promise
+        : Promise.resolve(response(url)),
+    );
+    const { rerender } = renderHook(useMusic, {
+      initialProps: options("gameplay"),
+    });
+    await flush();
+    const prefetch = fetchMock.mock.calls[1][1].signal;
+    expect(currentAudio().sources).toHaveLength(1);
+    rerender(options("gameplay", false));
+    expect(prefetch?.aborted).toBe(true);
+    await act(async () => pending.resolve(response(gameplayUrls[1])));
+    expect(currentAudio().decodeAudioData).toHaveBeenCalledOnce();
+    expect(currentAudio().sources).toHaveLength(1);
+    expect(currentAudio().sources[0].buffer).toBeNull();
+  });
+
+  it("waits for an unfinished lookahead and starts it exactly once after the current track ends", async () => {
+    const pending = deferred<ReturnType<typeof response>>();
+    fetchMock.mockImplementation((url) =>
+      url === gameplayUrls[1]
+        ? pending.promise
+        : Promise.resolve(response(url)),
+    );
+    renderHook(useMusic, { initialProps: options("gameplay") });
+    await flush();
+    await finishTrack();
+    expect(currentAudio().sources).toHaveLength(1);
+    expect(currentAudio().sources[0].buffer).toBeNull();
+    await act(async () => pending.resolve(response(gameplayUrls[1])));
+    expect(currentAudio().sources).toHaveLength(2);
+    expect(currentTrack()).toBe(gameplayUrls[1]);
+    expect(
+      fetchMock.mock.calls.filter(([url]) => url === gameplayUrls[1]),
+    ).toHaveLength(1);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(
+      gameplayUrls.slice(0, 3),
+    );
+  });
+
+  it("skips unavailable tracks once and stays silent without a retry storm when all fail", async () => {
+    fetchMock.mockRejectedValue(new Error("Offline"));
+    const { rerender } = renderHook(useMusic, {
+      initialProps: options("gameplay"),
+    });
+    await flush();
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(gameplayUrls);
+    expect(currentAudio().sources).toHaveLength(0);
+    act(() => {
+      vi.advanceTimersByTime(60000);
+      window.dispatchEvent(new Event("pointerdown"));
+      window.dispatchEvent(new Event("keydown"));
+    });
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    fetchMock.mockImplementation(async (url) => response(url));
+    rerender(options("gameplay", false));
+    rerender(options("gameplay"));
+    await flush();
+    expect(currentAudio().sources).toHaveLength(1);
+    expect(currentTrack()).toBe(gameplayUrls[0]);
   });
 
   it("keeps scene changes working when the browser rejects an outgoing fade", async () => {

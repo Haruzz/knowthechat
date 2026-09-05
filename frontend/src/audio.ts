@@ -72,11 +72,12 @@ export function stopAudio(): void {
   stopVoices();
 }
 
-function play(tones: readonly Tone[]): void {
-  const request = ++playbackRequest;
+function play(tones: readonly Tone[], immediateOnly = false): void {
   try {
-    const audio = getContext();
+    const audio = immediateOnly ? context : getContext();
     if (!audio) return;
+    if (immediateOnly && (audio.state !== "running" || document.hidden)) return;
+    const request = ++playbackRequest;
     const start = () => {
       // Never replay a queue of old reveals after the browser allows audio.
       if (request !== playbackRequest || audio.state !== "running") return;
@@ -121,6 +122,25 @@ function play(tones: readonly Tone[]): void {
   } catch {
     // A sound must never interrupt an answer or a round transition.
   }
+}
+
+/** Countdown cues expire immediately: never unlock or queue an old tick. */
+export function playCountdownTick(secondsLeft: number): void {
+  if (!Number.isInteger(secondsLeft) || secondsLeft < 1 || secondsLeft > 5)
+    return;
+  play(
+    [
+      {
+        frequency: secondsLeft % 2 === 1 ? 880 : 660,
+        endFrequency: secondsLeft % 2 === 1 ? 560 : 420,
+        offset: 0,
+        duration: 0.06,
+        type: "sine",
+        volume: 0.035,
+      },
+    ],
+    true,
+  );
 }
 
 export function playAnswerSound(correct: boolean): void {

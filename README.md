@@ -19,9 +19,9 @@ Reloading the same browser tab restores your player session. Room updates arrive
 
 ## Music and sound
 
-Optional music plays in both modes: a relaxed lobby loop during setup and between matches, and a quieter loop during gameplay. The last five seconds of an unanswered multiplayer round gently lift the music, and streak jingles briefly lower it. Music starts off; each player controls their own music toggle and volume separately from sound effects and visual effects. Preferences stay in that browser.
+Optional music plays in both modes: a relaxed lobby loop during setup and between matches, and a quieter shuffled playlist during gameplay. Each gameplay track plays once before the playlist repeats, and music continues across rounds. The last five seconds of an unanswered multiplayer round gently lift the music and add a short tick-tock cue each second. The countdown uses the SFX toggle and stops when you submit an answer. Streak jingles briefly lower the music. Music starts off; each player controls their own music toggle and volume separately from sound effects and visual effects. Preferences stay in that browser.
 
-The two compressed loops are served with the frontend and played locally, with no external music service. Tracks load only after music is enabled, playback waits for a browser interaction when required, and hidden tabs pause the music. Artist credits, source links and the CC0 license are included in [the audio notices](frontend/public/audio/CREDITS.md).
+The gameplay playlist contains **Three Red Hearts - Penguin Town**, **Three Red Hearts - Sanctuary**, **Sketchbook 2025-12-11**, and **Sketchbook 2024-10-14**. The lobby uses **Super Retro Lounge**. These compressed tracks are served with the frontend and played locally, with no external music service. Tracks load only after music is enabled, playback waits for a browser interaction when required, and hidden tabs pause the music and countdown cues. Artist credits, source links and the CC0 license are included in [the audio notices](frontend/public/audio/CREDITS.md).
 
 ## Prerequisites
 
@@ -88,7 +88,7 @@ Start the standalone playground from the repository root:
 npm run dev:streaks
 ```
 
-Open [http://127.0.0.1:5174](http://127.0.0.1:5174). No backend, Twitch channel or archive is needed. Use the milestone buttons to preview **On Fire (5)**, **Unstoppable (10)** and **Chat Legend (15+)**, including their sounds. Enable Music to audition **Lobby**, **Gameplay**, and **Final seconds**, adjust its volume, and hear the music dip beneath streak jingles. Simulate correct guesses or a miss, replay a celebration, and toggle sound or visual effects. Reduced-motion preferences still apply. Stop the server with **Ctrl+C**.
+Open [http://127.0.0.1:5174](http://127.0.0.1:5174). No backend, Twitch channel or archive is needed. Use the milestone buttons to preview **On Fire (5)**, **Unstoppable (10)** and **Chat Legend (15+)**, including their sounds. Enable Music to audition **Lobby**, **Gameplay**, and **Final seconds**, adjust its volume, and hear the music dip beneath streak jingles. **Try 5-second countdown** auditions the tick-tock cue with or without music; a guess or celebration stops it early. Simulate correct guesses or a miss, replay a celebration, and toggle sound or visual effects. Reduced-motion preferences still apply. Stop the server with **Ctrl+C**.
 
 This page has a separate development entry point in `frontend/playground/`, listens only on the local loopback interface, and is excluded from the normal production build. The game has no preview link or query-string switch; `?preview=streaks` no longer opens a playground.
 

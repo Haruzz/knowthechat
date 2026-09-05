@@ -9,6 +9,7 @@ import {
 
 import StreakEffects from "./StreakEffects";
 import type { MusicScene } from "./music";
+import { useCountdownTicks } from "./useCountdownTicks";
 import { connectRoom, RoomError } from "./roomConnection";
 import {
   parseLeave,
@@ -265,6 +266,7 @@ export default function PartyGame({
   onRoundRevealed,
   onInteraction,
   onMusicStateChange,
+  onCountdownTick,
 }: {
   onBack: () => void;
   effectsEnabled?: boolean;
@@ -272,6 +274,7 @@ export default function PartyGame({
   onRoundRevealed?: (correct: boolean, streak: number) => void;
   onInteraction?: () => void;
   onMusicStateChange?: (scene: MusicScene, urgent: boolean) => void;
+  onCountdownTick?: (secondsLeft: number) => void;
 }) {
   const [session, setSession] = useState<Session | null>(savedSession);
   const [room, setRoom] = useState<Room | null>(null);
@@ -316,6 +319,22 @@ export default function PartyGame({
   const musicUrgent = Boolean(
     phase === "round" && !me?.answered && secondsLeft > 0 && secondsLeft <= 5,
   );
+  useCountdownTicks({
+    roundId:
+      phase === "round" && room?.round ? `${room.code}:${room.round.id}` : null,
+    deadline:
+      !room || room.deadline === null ? null : room.deadline - clockOffset,
+    enabled: Boolean(
+      onCountdownTick &&
+      phase === "round" &&
+      me &&
+      !me.answered &&
+      busy !== "guess" &&
+      busy !== "leave" &&
+      !connectionError,
+    ),
+    onTick: onCountdownTick ?? (() => {}),
+  });
   const isHost = Boolean(room && room.hostId === room.you);
   const retryAction = !room
     ? tab

@@ -100,6 +100,95 @@ afterEach(() => {
 });
 
 describe("live party snapshots", () => {
+  it("ticks once per final second and stops immediately while a guess request is pending", async () => {
+    const onCountdownTick = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      () => new Promise<Response>(() => {}),
+    );
+    render(<PartyGame onBack={vi.fn()} onCountdownTick={onCountdownTick} />);
+    const socket = FakeRoomSocket.instances[0];
+    const room = activeRoom();
+    act(() => socket.message({ type: "room", room }));
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    expect(onCountdownTick.mock.calls).toEqual([[5]]);
+    act(() =>
+      socket.message({
+        type: "room",
+        room: { ...room, serverNow: Date.now() },
+      }),
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+    expect(onCountdownTick.mock.calls).toEqual([[5], [4]]);
+    fireEvent.click(screen.getByRole("button", { name: "Guess Alice" }));
+    await act(async () => vi.advanceTimersByTimeAsync(4_000));
+    expect(onCountdownTick.mock.calls).toEqual([[5], [4]]);
+    expect(FakeRoomSocket.instances).toHaveLength(1);
+  });
+
+  it("resumes only future countdown seconds after the room connection returns", async () => {
+    const onCountdownTick = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      () => new Promise<Response>(() => {}),
+    );
+    render(<PartyGame onBack={vi.fn()} onCountdownTick={onCountdownTick} />);
+    const room = activeRoom();
+    act(() => FakeRoomSocket.instances[0].message({ type: "room", room }));
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    expect(onCountdownTick.mock.calls).toEqual([[5]]);
+    act(() => FakeRoomSocket.instances[0].disconnect());
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+    act(() =>
+      FakeRoomSocket.instances.at(-1)!.message({
+        type: "room",
+        room: { ...room, serverNow: Date.now() },
+      }),
+    );
+    expect(onCountdownTick.mock.calls).toEqual([[5]]);
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+    expect(onCountdownTick.mock.calls).toEqual([[5], [3]]);
+  });
+
+  it.each(["reveal", "finished", "answered", "leave"])(
+    "stops countdown cues after %s",
+    async (transition) => {
+      const onCountdownTick = vi.fn();
+      vi.spyOn(globalThis, "fetch").mockImplementation(
+        () => new Promise<Response>(() => {}),
+      );
+      render(<PartyGame onBack={vi.fn()} onCountdownTick={onCountdownTick} />);
+      const socket = FakeRoomSocket.instances[0];
+      const room = activeRoom();
+      act(() => socket.message({ type: "room", room }));
+      await act(async () => vi.advanceTimersByTimeAsync(15_000));
+      expect(onCountdownTick).toHaveBeenCalledExactlyOnceWith(5);
+      if (transition === "leave")
+        fireEvent.click(screen.getByRole("button", { name: "Leave lobby" }));
+      else
+        act(() =>
+          socket.message({
+            type: "room",
+            room: {
+              ...room,
+              revision: 3,
+              serverNow: Date.now(),
+              phase: transition === "answered" ? "round" : transition,
+              round:
+                transition === "answered"
+                  ? room.round
+                  : { ...room.round, author: "Alice" },
+              players: room.players.map((player) =>
+                player.id === room.you
+                  ? { ...player, answered: true, choice: "Alice" }
+                  : player,
+              ),
+            },
+          }),
+        );
+      await act(async () => vi.advanceTimersByTimeAsync(5_000));
+      expect(onCountdownTick).toHaveBeenCalledOnce();
+    },
+  );
+
   it("changes music with the room phase and adds urgency only while an unanswered round has time left", async () => {
     const onMusicStateChange = vi.fn();
     render(
