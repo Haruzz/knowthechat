@@ -2,42 +2,154 @@ import { useEffect, useRef, useState } from "react";
 
 import StreakEffects, { GamePreferences } from "../src/StreakEffects";
 import {
+  playApplause,
   playAnswerSound,
+  playCountdownTick,
   playStreakSound,
   prepareAudio,
+  stopApplause,
   stopAudio,
 } from "../src/audio";
+import { useMusic } from "../src/music";
+import { useCountdownTicks } from "../src/useCountdownTicks";
 import "./StreakPreview.css";
 
 export default function StreakPreview() {
   const [streak, setStreak] = useState(0);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [effectsEnabled, setEffectsEnabled] = useState(true);
+  const [musicEnabled, setMusicEnabled] = useState(true);
+  const [musicVolume, setMusicVolume] = useState(0.35);
+  const [countdown, setCountdown] = useState<{
+    id: number;
+    deadline: number;
+  } | null>(null);
+  const [countdownNow, setCountdownNow] = useState(Date.now);
+  const countdownSequence = useRef(0);
+  const applauseSequence = useRef(0);
+  const countdownStartTimer = useRef<number | undefined>(undefined);
+  const countdownSeconds = countdown
+    ? Math.max(0, Math.ceil((countdown.deadline - countdownNow) / 1_000))
+    : 0;
+  useCountdownTicks({
+    roundId: countdown ? `preview-${countdown.id}` : null,
+    deadline: countdown?.deadline ?? null,
+    enabled: soundEnabled && countdownSeconds > 0,
+    onTick: playCountdownTick,
+    playOnStart: true,
+  });
+  const [musicPreview, setMusicPreview] = useState<
+    "lobby" | "gameplay" | "urgent" | "results"
+  >("lobby");
+  const music = useMusic({
+    enabled: musicEnabled,
+    volume: musicVolume,
+    scene:
+      musicPreview === "results" ||
+      (musicPreview === "urgent" && countdown && countdownSeconds === 0)
+        ? "silent"
+        : musicPreview === "lobby"
+          ? "lobby"
+          : "gameplay",
+    urgent: musicPreview === "urgent" && (!countdown || countdownSeconds > 0),
+  });
   const [celebration, setCelebration] = useState<{
     count: number;
     sequence: number;
   } | null>(null);
   const sequence = useRef(0);
 
+  function cancelApplause() {
+    applauseSequence.current += 1;
+    stopApplause();
+  }
+  function cancelCountdown() {
+    cancelApplause();
+    countdownSequence.current += 1;
+    window.clearTimeout(countdownStartTimer.current);
+    setCountdown(null);
+  }
+  function previewGameOver() {
+    cancelCountdown();
+    setCelebration(null);
+    setMusicPreview("results");
+    if (!soundEnabled) return;
+    const request = applauseSequence.current;
+    void prepareAudio().then(() => {
+      if (
+        request === applauseSequence.current &&
+        document.visibilityState === "visible"
+      )
+        playApplause();
+    });
+  }
+  function startCountdown() {
+    cancelCountdown();
+    const request = countdownSequence.current;
+    if (musicEnabled) music.prepare();
+    setMusicPreview("urgent");
+    let started = false;
+    const begin = () => {
+      if (started || request !== countdownSequence.current) return;
+      started = true;
+      window.clearTimeout(countdownStartTimer.current);
+      const currentTime = Date.now();
+      setCountdownNow(currentTime);
+      setCountdown({ id: request, deadline: currentTime + 5_000 });
+    };
+    if (soundEnabled) {
+      // Give the gesture time to unlock audio without freezing a blocked preview.
+      countdownStartTimer.current = window.setTimeout(begin, 250);
+      void Promise.resolve(prepareAudio()).then(begin);
+    } else begin();
+  }
   function celebrate(count: number) {
+    cancelCountdown();
     setCelebration({ count, sequence: ++sequence.current });
-    if (soundEnabled) playStreakSound(count);
+    if (soundEnabled) {
+      music.duck();
+      playStreakSound(count);
+    }
   }
   function jumpTo(count: number) {
     setStreak(count);
     celebrate(count);
   }
   function correct() {
+    cancelCountdown();
     const next = streak + 1;
     setStreak(next);
     if (next % 5 === 0) celebrate(next);
     else if (soundEnabled) playAnswerSound(true);
   }
   function wrong() {
+    cancelCountdown();
     if (soundEnabled) playAnswerSound(false);
     setStreak(0);
     setCelebration(null);
   }
+  useEffect(() => {
+    const cancelPendingApplause = () => {
+      if (document.visibilityState === "hidden") applauseSequence.current += 1;
+    };
+    document.addEventListener("visibilitychange", cancelPendingApplause);
+    return () => {
+      countdownSequence.current += 1;
+      applauseSequence.current += 1;
+      stopApplause();
+      window.clearTimeout(countdownStartTimer.current);
+      document.removeEventListener("visibilitychange", cancelPendingApplause);
+    };
+  }, []);
+  useEffect(() => {
+    if (!countdown) return;
+    const timer = window.setInterval(() => {
+      const currentTime = Date.now();
+      setCountdownNow(currentTime);
+      if (currentTime >= countdown.deadline) window.clearInterval(timer);
+    }, 200);
+    return () => window.clearInterval(timer);
+  }, [countdown]);
   useEffect(() => {
     if (!celebration) return;
     const timer = window.setTimeout(() => setCelebration(null), 3_500);
@@ -97,13 +209,94 @@ export default function StreakPreview() {
           <GamePreferences
             soundEnabled={soundEnabled}
             effectsEnabled={effectsEnabled}
+            musicEnabled={musicEnabled}
+            musicVolume={musicVolume}
+            onMusicChange={() => {
+              if (!musicEnabled) music.prepare();
+              setMusicEnabled(!musicEnabled);
+            }}
+            onMusicVolumeChange={(volume) => {
+              if (musicEnabled) music.prepare();
+              setMusicVolume(volume);
+            }}
             onSoundChange={() => {
-              if (soundEnabled) stopAudio();
-              else prepareAudio();
+              if (soundEnabled) {
+                cancelApplause();
+                stopAudio();
+              } else prepareAudio();
               setSoundEnabled(!soundEnabled);
             }}
             onEffectsChange={() => setEffectsEnabled(!effectsEnabled)}
           />
+          <p className="preview-note">
+            Choose a music scene or try a milestone. Final seconds starts the
+            five-second tick-tock countdown.
+          </p>
+          <div
+            className="game-preferences"
+            role="group"
+            aria-label="Music preview scene"
+          >
+            {(
+              [
+                ["lobby", "Lobby"],
+                ["gameplay", "Gameplay"],
+                ["urgent", "Final seconds"],
+              ] as const
+            ).map(([scene, label]) => (
+              <button
+                key={scene}
+                type="button"
+                aria-pressed={musicPreview === scene}
+                onClick={() => {
+                  if (scene === "urgent") {
+                    startCountdown();
+                    return;
+                  }
+                  cancelCountdown();
+                  if (musicEnabled) music.prepare();
+                  setMusicPreview(scene);
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="preview-actions">
+            <button
+              type="button"
+              className="preview-secondary"
+              onClick={startCountdown}
+            >
+              Try 5-second countdown
+            </button>
+            <button
+              type="button"
+              className="preview-secondary"
+              onClick={previewGameOver}
+            >
+              Game over · applause
+            </button>
+            {countdown && (
+              <span className="preview-countdown">
+                <output aria-label="Countdown seconds">
+                  {countdownSeconds}
+                </output>
+                <span>
+                  {countdownSeconds > 0 ? "seconds left" : "Time’s up"}
+                </span>
+              </span>
+            )}
+          </div>
+          <p className="preview-note">
+            Game over plays the final-results applause with music silent. It
+            uses the SFX toggle, and you can replay it with the same button.
+          </p>
+          <p className="preview-note">
+            {soundEnabled
+              ? "The countdown uses SFX. Try a guess or celebration to stop it early."
+              : "SFX is off. Turn it on to hear the countdown."}
+          </p>
           <p className="preview-note">
             This playground uses a sample clue and does not change your game
             scores. Your device’s reduced-motion preference still applies.

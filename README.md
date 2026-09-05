@@ -17,6 +17,12 @@ Rooms expire after two hours. The default admission policy allows ten open rooms
 
 Reloading the same browser tab restores your player session. Room updates arrive over hibernating WebSockets, with automatic reconnection and an HTTP fallback when needed; the server owns deadlines, scores and answer reveals. This mode is intended for casual matches with friends using public source material.
 
+## Music and sound
+
+Optional music plays in both modes: a relaxed lobby loop during setup and between matches, and a quieter shuffled playlist during gameplay. Each gameplay track plays once before the playlist repeats, and music continues across rounds. Music goes silent for the last five seconds of a multiplayer round, leaving a distinct tick-tock cue each second for players who still need to answer. The countdown uses the SFX toggle and stops when you submit an answer. Music stays silent while the leaderboard or solo results are shown. A short applause recording plays once when solo results open or the final party round reveals its leaderboard. It uses the SFX toggle, preserves normal answer/streak feedback, and stops on a new game, rematch, leaving, muting SFX, or hiding the tab. Restoring an already completed party game does not replay it. Streak jingles briefly lower the music during play. Music is enabled by default at 35% volume; each player controls their own music toggle and volume separately from sound effects and visual effects. Preferences stay in that browser, including a saved choice to turn music off.
+
+The gameplay playlist contains **Three Red Hearts - Penguin Town**, **Three Red Hearts - Sanctuary**, **Sketchbook 2025-12-11**, and **Sketchbook 2024-10-14**. The lobby uses **Super Retro Lounge**. These compressed tracks are served with the frontend and played locally, with no external music service. Tracks load only after music is enabled, playback waits for a browser interaction when required, and hidden tabs pause the music and countdown cues. Artist credits, source links and licenses are included in [the audio notices](frontend/public/audio/CREDITS.md) and the game's **Audio credits** page. Music and clock cues use CC0; **Applause** by Blender Foundation, edited by LeeZH, uses CC BY 3.0. All assets ship with the frontend; applause preloads with SFX and never delays the results screen.
+
 ## Prerequisites
 
 - Node.js 22.13 or newer
@@ -82,7 +88,7 @@ Start the standalone playground from the repository root:
 npm run dev:streaks
 ```
 
-Open [http://127.0.0.1:5174](http://127.0.0.1:5174). No backend, Twitch channel or archive is needed. Use the milestone buttons to preview **On Fire (5)**, **Unstoppable (10)** and **Chat Legend (15+)**, including their sounds. Simulate correct guesses or a miss, replay a celebration, and toggle sound or visual effects. Reduced-motion preferences still apply. Stop the server with **Ctrl+C**.
+Open [http://127.0.0.1:5174](http://127.0.0.1:5174). No backend, Twitch channel or archive is needed. Use the milestone buttons to preview **On Fire (5)**, **Unstoppable (10)** and **Chat Legend (15+)**, including their sounds. Use the music controls to audition **Lobby** or **Gameplay**, adjust volume, and hear the music dip beneath streak jingles. **Final seconds** and **Try 5-second countdown** both silence the music and run the five tick-tock cues; a guess or celebration stops them early. The preview waits briefly for browser audio permission before starting, and SFX must be on to hear the countdown. **Game over · applause** auditions the final-results applause with music silent; click it again to replay. Simulate correct guesses or a miss, replay a celebration, and toggle sound or visual effects. Reduced-motion preferences still apply. Stop the server with **Ctrl+C**.
 
 This page has a separate development entry point in `frontend/playground/`, listens only on the local loopback interface, and is excluded from the normal production build. The game has no preview link or query-string switch; `?preview=streaks` no longer opens a playground.
 

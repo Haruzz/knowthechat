@@ -10,6 +10,11 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import PartyGame from "./PartyGame";
+import { useStreamerProfile } from "./useStreamerProfile";
+
+vi.mock("./useStreamerProfile", () => ({
+  useStreamerProfile: vi.fn(() => null),
+}));
 
 const SESSION_KEY = "knowthechat-party-session";
 const player = (id: string, name: string) => ({
@@ -71,6 +76,7 @@ function remember() {
 }
 
 beforeEach(() => {
+  vi.mocked(useStreamerProfile).mockReturnValue(null);
   vi.stubGlobal("WebSocket", undefined);
   sessionStorage.clear();
   window.history.replaceState(null, "", "/");
@@ -870,7 +876,7 @@ describe("private party game", () => {
         name: "Everyone in? Start the game →",
       }),
     );
-    expect(await screen.findByText("The chat never forgets")).toBeTruthy();
+    expect(await screen.findByText("“The chat never forgets”")).toBeTruthy();
     fireEvent.keyDown(window, { key: "2", repeat: true });
     expect(
       fetchMock.mock.calls.filter(([input]) =>
@@ -1094,21 +1100,31 @@ describe("private party game", () => {
     "returns to setup when a room action reports an expired session (%s)",
     async (status) => {
       remember();
-      const room = { ...waitingRoom(), phase: "finished" };
+      const onGameRestarted = vi.fn();
+      const room = {
+        ...activeRoom(),
+        phase: "reveal",
+        totalRounds: 1,
+        deadline: null,
+        round: { ...activeRoom().round, author: "Alice" },
+      };
       vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
-        String(input).endsWith("/rematch")
+        String(input).endsWith("/next")
           ? response({ error: "This lobby is no longer available." }, status)
           : response(room),
       );
-      render(<PartyGame onBack={vi.fn()} />);
-      fireEvent.click(
-        await screen.findByRole("button", { name: "Play a rematch →" }),
-      );
+      render(<PartyGame onBack={vi.fn()} onGameRestarted={onGameRestarted} />);
+      const next = await screen.findByRole("button", {
+        name: "See final standings →",
+      });
+      onGameRestarted.mockClear();
+      fireEvent.click(next);
       expect(await screen.findByRole("alert")).toHaveProperty(
         "textContent",
         "This lobby is no longer available.",
       );
       expect(sessionStorage.getItem(SESSION_KEY)).toBeNull();
+      expect(onGameRestarted).toHaveBeenCalledOnce();
       expect(
         (screen.getByLabelText("Room code") as HTMLInputElement).value,
       ).toBe("ABC234");

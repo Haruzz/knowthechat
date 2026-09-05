@@ -287,6 +287,9 @@
   .project-links {
     right: 12px;
     bottom: 10px;
+    max-width: calc(100% - 24px);
+    flex-wrap: wrap;
+    justify-content: flex-end;
     gap: 6px;
   }
   .project-link {

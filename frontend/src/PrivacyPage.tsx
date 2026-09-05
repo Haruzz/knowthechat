@@ -62,10 +62,11 @@ export default function PrivacyPage() {
           <p>
             The game stores a per-channel list of previously seen message
             identifiers in your browser&apos;s local storage to reduce repeated
-            rounds, along with sound and visual-effects preferences. You can
-            remove this information using your browser&apos;s site data
-            controls. Google&apos;s consent platform may also store your privacy
-            choices so it can remember them.
+            rounds, along with music, music volume, sound-effect and
+            visual-effects preferences. You can remove this information using
+            your browser&apos;s site data controls. Google&apos;s consent
+            platform may also store your privacy choices so it can remember
+            them.
           </p>
           <p>
             A multiplayer room code and session token are stored in the browser

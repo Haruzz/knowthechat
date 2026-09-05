@@ -8,6 +8,10 @@ import {
 } from "react";
 
 import StreakEffects from "./StreakEffects";
+import GameChannel from "./GameChannel";
+import type { MusicScene } from "./music";
+import { useCountdownTicks } from "./useCountdownTicks";
+import { useStreamerProfile } from "./useStreamerProfile";
 import { connectRoom, RoomError } from "./roomConnection";
 import {
   parseLeave,
@@ -263,15 +267,24 @@ export default function PartyGame({
   preferences,
   onRoundRevealed,
   onInteraction,
+  onMusicStateChange,
+  onCountdownTick,
+  onGameFinished,
+  onGameRestarted,
 }: {
   onBack: () => void;
   effectsEnabled?: boolean;
   preferences?: ReactNode;
   onRoundRevealed?: (correct: boolean, streak: number) => void;
   onInteraction?: () => void;
+  onMusicStateChange?: (scene: MusicScene, urgent: boolean) => void;
+  onCountdownTick?: (secondsLeft: number) => void;
+  onGameFinished?: () => void;
+  onGameRestarted?: () => void;
 }) {
   const [session, setSession] = useState<Session | null>(savedSession);
   const [room, setRoom] = useState<Room | null>(null);
+  const streamer = useStreamerProfile(room?.channel ?? null);
   const [tab, setTab] = useState<"create" | "join">(() =>
     inviteCode() ? "join" : "create",
   );
@@ -297,12 +310,43 @@ export default function PartyGame({
   const backCallback = useRef(onBack);
   const latestRoom = useRef<Room | null>(null);
   const revealCallback = useRef(onRoundRevealed);
+  const completionCallback = useRef(onGameFinished);
+  const restartCallback = useRef(onGameRestarted);
+  const completionInterrupted = useRef(false);
   const previousView = useRef<{
     code: string;
     phase: Room["phase"];
     roundId: string | null;
   } | null>(null);
   const phase = room?.phase;
+  const me = room?.players.find((player) => player.id === room.you);
+  const secondsLeft =
+    !room || room.deadline === null
+      ? 0
+      : Math.max(0, Math.ceil((room.deadline - (now + clockOffset)) / 1_000));
+  const musicScene: MusicScene =
+    phase === "round"
+      ? "gameplay"
+      : phase === "reveal" || phase === "finished"
+        ? "silent"
+        : "lobby";
+  const musicUrgent = Boolean(phase === "round" && secondsLeft <= 5);
+  useCountdownTicks({
+    roundId:
+      phase === "round" && room?.round ? `${room.code}:${room.round.id}` : null,
+    deadline:
+      !room || room.deadline === null ? null : room.deadline - clockOffset,
+    enabled: Boolean(
+      onCountdownTick &&
+      phase === "round" &&
+      me &&
+      !me.answered &&
+      busy !== "guess" &&
+      busy !== "leave" &&
+      !connectionError,
+    ),
+    onTick: onCountdownTick ?? (() => {}),
+  });
   const isHost = Boolean(room && room.hostId === room.you);
   const retryAction = !room
     ? tab
@@ -355,12 +399,31 @@ export default function PartyGame({
 
   useEffect(() => {
     revealCallback.current = onRoundRevealed;
+    completionCallback.current = onGameFinished;
+    restartCallback.current = onGameRestarted;
     backCallback.current = onBack;
-  }, [onRoundRevealed, onBack]);
+  }, [onRoundRevealed, onGameFinished, onGameRestarted, onBack]);
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.hidden) completionInterrupted.current = true;
+    };
+    const onPageHide = () => {
+      completionInterrupted.current = true;
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", onPageHide);
+      restartCallback.current?.();
+    };
+  }, []);
 
   const finishLeave = useCallback(() => {
     if (!pendingLeave.current) return;
     pendingLeave.current = false;
+    restartCallback.current?.();
     operation.current?.abort();
     storeSession(null);
     setSession(null);
@@ -387,6 +450,12 @@ export default function PartyGame({
       latest?.code !== nextRoom.code || latest.you !== nextRoom.you;
     if (
       membershipChanged ||
+      (nextRoom.phase === "waiting" && latest?.phase !== "waiting") ||
+      (nextRoom.phase === "round" && latest?.round?.id !== nextRoom.round?.id)
+    )
+      restartCallback.current?.();
+    if (
+      membershipChanged ||
       (latest?.phase === "finished" && nextRoom.phase === "waiting")
     ) {
       setCooldowns((current) => {
@@ -410,6 +479,8 @@ export default function PartyGame({
       (member) => member.id === nextRoom.you,
     );
     const previous = previousView.current;
+    const interrupted = completionInterrupted.current;
+    completionInterrupted.current = document.hidden;
     const newlyRevealed =
       previous?.code === nextRoom.code &&
       previous.phase === "round" &&
@@ -432,6 +503,13 @@ export default function PartyGame({
         player.choice === nextRoom.round?.author,
         player.streak,
       );
+      if (
+        nextRoom.roundNumber === nextRoom.totalRounds &&
+        !interrupted &&
+        !document.hidden &&
+        !pendingLeave.current
+      )
+        completionCallback.current?.();
     }
   }, []);
 
@@ -456,6 +534,7 @@ export default function PartyGame({
       onRoom: acceptRoom,
       parseRoom,
       onProblem: (problem) => {
+        completionInterrupted.current = true;
         if (
           problem instanceof RoomError &&
           [401, 403, 404, 410].includes(problem.status)
@@ -465,6 +544,7 @@ export default function PartyGame({
             return true;
           }
           operation.current?.abort();
+          restartCallback.current?.();
           storeSession(null);
           setSession(null);
           setRoom(null);
@@ -506,6 +586,10 @@ export default function PartyGame({
     return () => window.clearInterval(timer);
   }, [phase]);
 
+  useEffect(() => {
+    onMusicStateChange?.(musicScene, musicUrgent);
+  }, [onMusicStateChange, musicScene, musicUrgent]);
+
   async function enter(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
     if (
@@ -514,6 +598,7 @@ export default function PartyGame({
     )
       return;
     onInteraction?.();
+    restartCallback.current?.();
     actionPending.current = true;
     operation.current?.abort();
     const controller = new AbortController();
@@ -576,6 +661,8 @@ export default function PartyGame({
       )
         return;
       onInteraction?.();
+      if (action === "start" || action === "rematch" || action === "leave")
+        restartCallback.current?.();
       actionPending.current = true;
       pendingLeave.current = action === "leave";
       operation.current?.abort();
@@ -603,6 +690,7 @@ export default function PartyGame({
             problem instanceof RoomError &&
             [401, 404, 410].includes(problem.status)
           ) {
+            restartCallback.current?.();
             storeSession(null);
             setSession(null);
             setRoom(null);
@@ -901,11 +989,6 @@ export default function PartyGame({
       </main>
     );
 
-  const me = room.players.find((player) => player.id === room.you);
-  const secondsLeft =
-    room.deadline === null
-      ? 0
-      : Math.max(0, Math.ceil((room.deadline - (now + clockOffset)) / 1_000));
   const revealed = phase === "reveal" || phase === "finished";
   const locked = Boolean(
     me?.answered || busy || phase !== "round" || secondsLeft === 0,
@@ -921,9 +1004,16 @@ export default function PartyGame({
       translate="no"
     >
       <header className="party-header">
-        <div className="party-room-heading">
-          <p className="eyebrow">KNOW THE CHAT · PRIVATE PARTY</p>
-          <strong>#{room.channel}</strong>
+        <div className="party-brand-lockup">
+          <img
+            className="brand-logo mini-logo"
+            src="/logo.png"
+            alt="Know The Chat"
+          />
+          <div className="party-room-heading">
+            <p className="eyebrow">PRIVATE PARTY</p>
+            <strong>Play with friends</strong>
+          </div>
         </div>
         <div className="party-header-actions">
           <button
@@ -933,6 +1023,7 @@ export default function PartyGame({
           >
             {busy === "leave" ? "Leaving…" : "Leave lobby"}
           </button>
+          <GameChannel channel={room.channel} streamer={streamer} />
         </div>
       </header>
       <div className="party-content">
@@ -1094,60 +1185,69 @@ export default function PartyGame({
                   aria-label={`Round ${room.roundNumber} clue`}
                 >
                   <p className="message-meta">
+                    <time dateTime={new Date(room.round.sentAt).toISOString()}>
+                      {new Date(room.round.sentAt).toLocaleDateString("en-US", {
+                        year: "numeric",
+                        month: "long",
+                        day: "numeric",
+                      })}
+                    </time>
+                    <span aria-hidden="true">·</span>
                     <span className={`difficulty ${room.round.difficulty}`}>
                       {room.round.difficulty}
                     </span>
-                    <span aria-hidden="true">·</span>
-                    <span>Who said it?</span>
                   </p>
-                  <blockquote>{renderMessage(room.round)}</blockquote>
-                  <div className="choices">
-                    {room.round.choices.map((choice, index) => (
-                      <button
-                        type="button"
-                        key={choice}
-                        disabled={locked}
-                        className={
-                          revealed
-                            ? choice === room.round?.author
-                              ? "right"
+                  <blockquote>“{renderMessage(room.round)}”</blockquote>
+                  <div className="answer-area">
+                    <p className="prompt">Who said it?</p>
+                    <div className="choices">
+                      {room.round.choices.map((choice, index) => (
+                        <button
+                          type="button"
+                          key={choice}
+                          disabled={locked}
+                          className={
+                            revealed
+                              ? choice === room.round?.author
+                                ? "right"
+                                : choice === me?.choice
+                                  ? "wrong"
+                                  : "dim"
                               : choice === me?.choice
-                                ? "wrong"
-                                : "dim"
-                            : choice === me?.choice
-                              ? "party-selected"
-                              : ""
-                        }
-                        aria-label={`Guess ${choice}`}
-                        aria-pressed={choice === me?.choice}
-                        onClick={() => void act("guess", choice)}
-                      >
-                        <span className="choice-avatar" aria-hidden="true">
-                          {choice.slice(0, 2).toUpperCase()}
-                        </span>
-                        <span className="choice-name">{choice}</span>
-                        <span className="choice-key" aria-hidden="true">
-                          {index + 1}
-                        </span>
-                      </button>
-                    ))}
+                                ? "party-selected"
+                                : ""
+                          }
+                          aria-label={`Guess ${choice}`}
+                          aria-pressed={choice === me?.choice}
+                          onClick={() => void act("guess", choice)}
+                        >
+                          <span className="choice-avatar" aria-hidden="true">
+                            {choice.slice(0, 2).toUpperCase()}
+                          </span>
+                          <span className="choice-name">{choice}</span>
+                          <span className="choice-key" aria-hidden="true">
+                            {index + 1}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                    <p
+                      className={`party-answer-status ${revealed || (!me?.answered && secondsLeft > 0 && busy !== "guess") ? "party-sr-only" : ""}`}
+                      role="status"
+                    >
+                      {revealed
+                        ? me?.roundPoints
+                          ? `You got it! +${me.roundPoints.toLocaleString()} points. ${room.round.author} said it.`
+                          : `The answer was ${room.round.author}. ${me?.choice ? "Next clue, fresh start." : "Time ran out."}`
+                        : me?.answered
+                          ? `Locked in: ${me.choice}. Waiting for the reveal…`
+                          : secondsLeft === 0
+                            ? "Time’s up! Waiting for the reveal…"
+                            : busy === "guess"
+                              ? "Locking in your guess…"
+                              : "Choose your answer or press 1, 2, or 3."}
+                    </p>
                   </div>
-                  <p
-                    className={`party-answer-status ${revealed && me?.roundPoints ? "party-points-earned" : ""}`}
-                    role="status"
-                  >
-                    {revealed
-                      ? me?.roundPoints
-                        ? `You got it! +${me.roundPoints.toLocaleString()} points. ${room.round.author} said it.`
-                        : `The answer was ${room.round.author}. ${me?.choice ? "Next clue, fresh start." : "Time ran out."}`
-                      : me?.answered
-                        ? `Locked in: ${me.choice}. Waiting for the reveal…`
-                        : secondsLeft === 0
-                          ? "Time’s up! Waiting for the reveal…"
-                          : busy === "guess"
-                            ? "Locking in your guess…"
-                            : "Choose your answer or press 1, 2, or 3."}
-                  </p>
                 </section>
               )
             )}
@@ -1193,7 +1293,15 @@ export default function PartyGame({
         )}
       </div>
       <footer className="party-footer">
-        1,000 for accuracy. Up to 500 for speed. Bragging rights forever.
+        1,000 for accuracy. Up to 500 for speed. Bragging rights forever.{" "}
+        <a
+          className="underline"
+          href="/audio-credits"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Audio credits
+        </a>
       </footer>
     </main>
   );

@@ -1,9 +1,96 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import StreakEffects from "./StreakEffects";
+import StreakEffects, { GamePreferences } from "./StreakEffects";
 
 afterEach(cleanup);
+
+describe("Game preferences", () => {
+  it("keeps music, sound effects and visual effects independently controllable", () => {
+    const onMusicChange = vi.fn();
+    const onSoundChange = vi.fn();
+    const onEffectsChange = vi.fn();
+    render(
+      <GamePreferences
+        soundEnabled
+        effectsEnabled
+        musicEnabled={false}
+        onMusicChange={onMusicChange}
+        onSoundChange={onSoundChange}
+        onEffectsChange={onEffectsChange}
+      />,
+    );
+
+    const music = screen.getByRole("button", { name: "Music" });
+    expect(music.getAttribute("aria-pressed")).toBe("false");
+    expect(screen.queryByRole("slider", { name: "Music volume" })).toBeNull();
+    fireEvent.click(music);
+    expect(onMusicChange).toHaveBeenCalledOnce();
+    expect(onSoundChange).not.toHaveBeenCalled();
+    expect(onEffectsChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Sound effects" }));
+    expect(onSoundChange).toHaveBeenCalledOnce();
+    expect(onMusicChange).toHaveBeenCalledOnce();
+    expect(onEffectsChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Visual effects" }));
+    expect(onEffectsChange).toHaveBeenCalledOnce();
+  });
+
+  it("exposes an accessible music volume slider and percentage while music is on", () => {
+    const onMusicVolumeChange = vi.fn();
+    const props = {
+      soundEnabled: false,
+      effectsEnabled: true,
+      musicEnabled: true,
+      musicVolume: 0.35,
+      onMusicChange: vi.fn(),
+      onMusicVolumeChange,
+      onSoundChange: vi.fn(),
+      onEffectsChange: vi.fn(),
+    };
+    const { rerender } = render(<GamePreferences {...props} />);
+
+    const slider = screen.getByRole("slider", { name: "Music volume" });
+    expect(slider.getAttribute("aria-valuetext")).toBe("35%");
+    expect(screen.getByText("35%")).toBeTruthy();
+    fireEvent.change(slider, { target: { value: "60" } });
+    expect(onMusicVolumeChange).toHaveBeenCalledExactlyOnceWith(0.6);
+    expect(props.onSoundChange).not.toHaveBeenCalled();
+
+    rerender(<GamePreferences {...props} musicVolume={0.6} />);
+    expect(slider.getAttribute("aria-valuetext")).toBe("60%");
+    expect(screen.getByText("60%")).toBeTruthy();
+
+    rerender(<GamePreferences {...props} musicEnabled={false} />);
+    expect(screen.queryByRole("slider", { name: "Music volume" })).toBeNull();
+  });
+
+  it("keeps the streak preview's existing preferences without requiring music controls", () => {
+    render(
+      <GamePreferences
+        soundEnabled={false}
+        effectsEnabled
+        onSoundChange={vi.fn()}
+        onEffectsChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Music" })).toBeNull();
+    expect(screen.queryByRole("slider")).toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: "Sound effects" })
+        .getAttribute("aria-pressed"),
+    ).toBe("false");
+    expect(
+      screen
+        .getByRole("button", { name: "Visual effects" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+});
 
 describe("Streak effects", () => {
   it("tracks streaks silently before ignition", () => {

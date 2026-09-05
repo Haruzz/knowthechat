@@ -19,8 +19,8 @@ credentials.
 ## Browser storage
 
 The game stores a per-channel list of previously seen message identifiers in
-your browser's local storage to reduce repeated rounds, along with sound and
-visual-effects preferences. You can remove this information using your
+your browser's local storage to reduce repeated rounds, along with music,
+music volume, sound-effect and visual-effects preferences. You can remove this information using your
 browser's site-data controls. Google's consent platform may also store your
 privacy choices so it can remember them.
 

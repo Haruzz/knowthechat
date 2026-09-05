@@ -7,6 +7,10 @@ type PreferencesProps = {
   effectsEnabled: boolean;
   onSoundChange: () => void;
   onEffectsChange: () => void;
+  musicEnabled?: boolean;
+  musicVolume?: number;
+  onMusicChange?: () => void;
+  onMusicVolumeChange?: (volume: number) => void;
 };
 
 export function GamePreferences({
@@ -14,20 +18,58 @@ export function GamePreferences({
   effectsEnabled,
   onSoundChange,
   onEffectsChange,
+  musicEnabled,
+  musicVolume = 0.35,
+  onMusicChange,
+  onMusicVolumeChange,
 }: PreferencesProps) {
+  const volumePercent = Math.round(musicVolume * 100);
   return (
     <div
       className="game-preferences"
       role="group"
       aria-label="Game preferences"
     >
+      {musicEnabled !== undefined && onMusicChange && (
+        <div className="game-music-preferences">
+          <button
+            type="button"
+            aria-label="Music"
+            aria-pressed={musicEnabled}
+            onClick={onMusicChange}
+          >
+            <span aria-hidden="true">♫</span> Music{" "}
+            {musicEnabled ? "on" : "off"}
+          </button>
+          {musicEnabled && onMusicVolumeChange && (
+            <label className="game-music-volume">
+              <span>Volume</span>
+              <input
+                type="range"
+                aria-label="Music volume"
+                aria-valuetext={`${volumePercent}%`}
+                min="0"
+                max="100"
+                step="1"
+                value={volumePercent}
+                onChange={(event) =>
+                  onMusicVolumeChange(Number(event.currentTarget.value) / 100)
+                }
+              />
+              <span className="game-music-volume-value" aria-hidden="true">
+                {volumePercent}%
+              </span>
+            </label>
+          )}
+        </div>
+      )}
       <button
         type="button"
-        aria-label="Sound"
+        aria-label="Sound effects"
         aria-pressed={soundEnabled}
         onClick={onSoundChange}
       >
-        <span aria-hidden="true">♪</span> Sound {soundEnabled ? "on" : "off"}
+        <span aria-hidden="true">♪</span> SFX {soundEnabled ? "on" : "off"}
       </button>
       <button
         type="button"

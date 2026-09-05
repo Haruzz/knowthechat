@@ -4,11 +4,17 @@ import {
   fireEvent,
   render,
   screen,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import PartyGame from "./PartyGame";
+import { useStreamerProfile } from "./useStreamerProfile";
 import { FakeRoomSocket } from "./test/FakeRoomSocket";
+
+vi.mock("./useStreamerProfile", () => ({
+  useStreamerProfile: vi.fn(() => null),
+}));
 
 const SESSION_KEY = "knowthechat-party-session";
 const activeRoom = () => ({
@@ -81,6 +87,7 @@ function reveal() {
 }
 
 beforeEach(() => {
+  vi.mocked(useStreamerProfile).mockReturnValue(null);
   vi.useFakeTimers();
   FakeRoomSocket.instances = [];
   vi.stubGlobal("WebSocket", FakeRoomSocket);
@@ -100,6 +107,367 @@ afterEach(() => {
 });
 
 describe("live party snapshots", () => {
+  it("applauds only the last round's first reveal while preserving the last answer sound", () => {
+    const onGameFinished = vi.fn();
+    const onRoundRevealed = vi.fn();
+    const onGameRestarted = vi.fn();
+    render(
+      <PartyGame
+        onBack={vi.fn()}
+        onGameFinished={onGameFinished}
+        onGameRestarted={onGameRestarted}
+        onRoundRevealed={onRoundRevealed}
+      />,
+    );
+    const socket = FakeRoomSocket.instances[0];
+    act(() => socket.message({ type: "room", room: activeRoom() }));
+    act(() => socket.message({ type: "room", room: reveal() }));
+    expect(onGameFinished).not.toHaveBeenCalled();
+    const lastRound = {
+      ...activeRoom(),
+      revision: 5,
+      totalRounds: 6,
+      roundNumber: 6,
+    };
+    lastRound.round.id = "round-6";
+    act(() => socket.message({ type: "room", room: lastRound }));
+    const lastReveal = {
+      ...reveal(),
+      revision: 6,
+      totalRounds: 6,
+      roundNumber: 6,
+    };
+    lastReveal.round.id = "round-6";
+    act(() => socket.message({ type: "room", room: lastReveal }));
+    expect(onGameFinished).toHaveBeenCalledOnce();
+    expect(onRoundRevealed).toHaveBeenLastCalledWith(true, 5);
+    act(() => socket.message({ type: "room", room: lastReveal }));
+    act(() =>
+      socket.message({
+        type: "room",
+        room: { ...lastReveal, revision: 7, phase: "finished" },
+      }),
+    );
+    expect(onGameFinished).toHaveBeenCalledOnce();
+    onGameRestarted.mockClear();
+    act(() =>
+      socket.message({
+        type: "room",
+        room: {
+          ...lastRound,
+          revision: 8,
+          phase: "waiting",
+          round: null,
+          deadline: null,
+          roundNumber: 0,
+        },
+      }),
+    );
+    expect(onGameRestarted).toHaveBeenCalledOnce();
+    const credit = screen.getByRole("link", { name: "Audio credits" });
+    expect(credit.getAttribute("href")).toBe("/audio-credits");
+    expect(credit.getAttribute("target")).toBe("_blank");
+  });
+
+  it.each(["reveal", "finished"])(
+    "does not replay applause on restoring the final %s",
+    (phase) => {
+      const onGameFinished = vi.fn();
+      render(<PartyGame onBack={vi.fn()} onGameFinished={onGameFinished} />);
+      act(() =>
+        FakeRoomSocket.instances[0].message({
+          type: "room",
+          room: { ...reveal(), totalRounds: 5, phase },
+        }),
+      );
+      expect(onGameFinished).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["reconnect", "hidden tab"])(
+    "does not applaud an old final reveal after a %s gap",
+    async (gap) => {
+      const onGameFinished = vi.fn();
+      vi.spyOn(globalThis, "fetch").mockImplementation(
+        () => new Promise<Response>(() => {}),
+      );
+      render(<PartyGame onBack={vi.fn()} onGameFinished={onGameFinished} />);
+      act(() =>
+        FakeRoomSocket.instances[0].message({
+          type: "room",
+          room: { ...activeRoom(), totalRounds: 5 },
+        }),
+      );
+      if (gap === "reconnect") {
+        act(() => FakeRoomSocket.instances[0].disconnect());
+        await act(async () => vi.advanceTimersByTimeAsync(1_000));
+      } else {
+        vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+        vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+        act(() => document.dispatchEvent(new Event("visibilitychange")));
+        vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+        vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+        act(() => document.dispatchEvent(new Event("visibilitychange")));
+      }
+      act(() =>
+        FakeRoomSocket.instances
+          .at(-1)!
+          .message({ type: "room", room: { ...reveal(), totalRounds: 5 } }),
+      );
+      expect(onGameFinished).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["Play a rematch →", "Leave lobby"])(
+    "stops applause as soon as %s is requested",
+    (button) => {
+      const onGameRestarted = vi.fn();
+      vi.spyOn(globalThis, "fetch").mockImplementation(
+        () => new Promise<Response>(() => {}),
+      );
+      render(<PartyGame onBack={vi.fn()} onGameRestarted={onGameRestarted} />);
+      act(() =>
+        FakeRoomSocket.instances[0].message({
+          type: "room",
+          room: { ...reveal(), totalRounds: 5, phase: "finished" },
+        }),
+      );
+      onGameRestarted.mockClear();
+      fireEvent.click(screen.getByRole("button", { name: button }));
+      expect(onGameRestarted).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("matches the solo clue layout and streamer badge while keeping helper announcements out of the visible layout", () => {
+    vi.mocked(useStreamerProfile).mockReturnValue({
+      name: "ExampleStreamer",
+      logo: "https://example.com/avatar.png",
+    });
+    render(<PartyGame onBack={vi.fn()} />);
+    const socket = FakeRoomSocket.instances[0];
+    act(() => socket.message({ type: "room", room: activeRoom() }));
+    expect(useStreamerProfile).toHaveBeenLastCalledWith("example");
+    const header = screen.getByRole("banner");
+    expect(
+      within(header).getByRole("img", { name: "Know The Chat" }),
+    ).toBeTruthy();
+    expect(within(header).getByText("Playing")).toBeTruthy();
+    expect(within(header).getByText("#ExampleStreamer")).toBeTruthy();
+    expect(header.querySelector(".game-channel img")?.getAttribute("src")).toBe(
+      "https://example.com/avatar.png",
+    );
+    expect(
+      within(header).getByRole("button", { name: "Leave lobby" }),
+    ).toBeTruthy();
+
+    const clue = screen.getByRole("region", { name: "Round 5 clue" });
+    const metadata = clue.querySelector(".message-meta")!;
+    expect(metadata.children[0].tagName).toBe("TIME");
+    expect(metadata.children[0].getAttribute("datetime")).toBe(
+      "2023-11-14T22:13:20.000Z",
+    );
+    expect(metadata.textContent).toBe("November 14, 2023·medium");
+    expect(clue.querySelector("blockquote")?.textContent).toBe(
+      "“The chat never forgets”",
+    );
+    const prompt = within(clue).getByText("Who said it?");
+    expect(prompt.parentElement?.className).toBe("answer-area");
+    expect(prompt.nextElementSibling?.className).toBe("choices");
+    expect(
+      within(clue)
+        .getByText("Choose your answer or press 1, 2, or 3.")
+        .classList.contains("party-sr-only"),
+    ).toBe(true);
+
+    const room = activeRoom();
+    act(() =>
+      socket.message({
+        type: "room",
+        room: {
+          ...room,
+          revision: 3,
+          players: room.players.map((player) =>
+            player.id === room.you
+              ? { ...player, answered: true, choice: "Alice" }
+              : player,
+          ),
+        },
+      }),
+    );
+    expect(
+      screen
+        .getByText("Locked in: Alice. Waiting for the reveal…")
+        .classList.contains("party-sr-only"),
+    ).toBe(false);
+    act(() => socket.message({ type: "room", room: reveal() }));
+    const announcement = screen.getByText(/^You got it!.*Alice said it\.$/);
+    expect(announcement.classList.contains("party-sr-only")).toBe(true);
+    expect(announcement.getAttribute("role")).toBe("status");
+    expect(screen.getByRole("region", { name: "Scoreboard" })).toBeTruthy();
+  });
+
+  it("ticks once per final second and stops immediately while a guess request is pending", async () => {
+    const onCountdownTick = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      () => new Promise<Response>(() => {}),
+    );
+    render(<PartyGame onBack={vi.fn()} onCountdownTick={onCountdownTick} />);
+    const socket = FakeRoomSocket.instances[0];
+    const room = activeRoom();
+    act(() => socket.message({ type: "room", room }));
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    expect(onCountdownTick.mock.calls).toEqual([[5]]);
+    act(() =>
+      socket.message({
+        type: "room",
+        room: { ...room, serverNow: Date.now() },
+      }),
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+    expect(onCountdownTick.mock.calls).toEqual([[5], [4]]);
+    fireEvent.click(screen.getByRole("button", { name: "Guess Alice" }));
+    await act(async () => vi.advanceTimersByTimeAsync(4_000));
+    expect(onCountdownTick.mock.calls).toEqual([[5], [4]]);
+    expect(FakeRoomSocket.instances).toHaveLength(1);
+  });
+
+  it("resumes only future countdown seconds after the room connection returns", async () => {
+    const onCountdownTick = vi.fn();
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      () => new Promise<Response>(() => {}),
+    );
+    render(<PartyGame onBack={vi.fn()} onCountdownTick={onCountdownTick} />);
+    const room = activeRoom();
+    act(() => FakeRoomSocket.instances[0].message({ type: "room", room }));
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    expect(onCountdownTick.mock.calls).toEqual([[5]]);
+    act(() => FakeRoomSocket.instances[0].disconnect());
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+    act(() =>
+      FakeRoomSocket.instances.at(-1)!.message({
+        type: "room",
+        room: { ...room, serverNow: Date.now() },
+      }),
+    );
+    expect(onCountdownTick.mock.calls).toEqual([[5]]);
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+    expect(onCountdownTick.mock.calls).toEqual([[5], [3]]);
+  });
+
+  it.each(["reveal", "finished", "answered", "leave"])(
+    "stops countdown cues after %s",
+    async (transition) => {
+      const onCountdownTick = vi.fn();
+      vi.spyOn(globalThis, "fetch").mockImplementation(
+        () => new Promise<Response>(() => {}),
+      );
+      render(<PartyGame onBack={vi.fn()} onCountdownTick={onCountdownTick} />);
+      const socket = FakeRoomSocket.instances[0];
+      const room = activeRoom();
+      act(() => socket.message({ type: "room", room }));
+      await act(async () => vi.advanceTimersByTimeAsync(15_000));
+      expect(onCountdownTick).toHaveBeenCalledExactlyOnceWith(5);
+      if (transition === "leave")
+        fireEvent.click(screen.getByRole("button", { name: "Leave lobby" }));
+      else
+        act(() =>
+          socket.message({
+            type: "room",
+            room: {
+              ...room,
+              revision: 3,
+              serverNow: Date.now(),
+              phase: transition === "answered" ? "round" : transition,
+              round:
+                transition === "answered"
+                  ? room.round
+                  : { ...room.round, author: "Alice" },
+              players: room.players.map((player) =>
+                player.id === room.you
+                  ? { ...player, answered: true, choice: "Alice" }
+                  : player,
+              ),
+            },
+          }),
+        );
+      await act(async () => vi.advanceTimersByTimeAsync(5_000));
+      expect(onCountdownTick).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("keeps final seconds muted after answering, silences leaderboards and restores lobby music for a rematch", async () => {
+    const onMusicStateChange = vi.fn();
+    render(
+      <PartyGame onBack={vi.fn()} onMusicStateChange={onMusicStateChange} />,
+    );
+    expect(onMusicStateChange).toHaveBeenLastCalledWith("lobby", false);
+    const socket = FakeRoomSocket.instances[0];
+    const room = activeRoom();
+    act(() => socket.message({ type: "room", room }));
+    expect(onMusicStateChange).toHaveBeenLastCalledWith("gameplay", false);
+
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    expect(onMusicStateChange).toHaveBeenLastCalledWith("gameplay", true);
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
+    act(() =>
+      socket.message({
+        type: "room",
+        room: {
+          ...room,
+          revision: 3,
+          serverNow: Date.now(),
+          players: room.players.map((player) =>
+            player.id === "host"
+              ? { ...player, answered: true, choice: "Alice" }
+              : player,
+          ),
+        },
+      }),
+    );
+    expect(onMusicStateChange).toHaveBeenLastCalledWith("gameplay", true);
+
+    act(() => socket.message({ type: "room", room: reveal() }));
+    expect(onMusicStateChange).toHaveBeenLastCalledWith("silent", false);
+    act(() =>
+      socket.message({
+        type: "room",
+        room: { ...reveal(), revision: 5, phase: "finished" },
+      }),
+    );
+    expect(onMusicStateChange).toHaveBeenLastCalledWith("silent", false);
+    act(() =>
+      socket.message({
+        type: "room",
+        room: {
+          ...room,
+          revision: 6,
+          phase: "waiting",
+          round: null,
+          deadline: null,
+          roundNumber: 0,
+          serverNow: Date.now(),
+        },
+      }),
+    );
+    expect(onMusicStateChange).toHaveBeenLastCalledWith("lobby", false);
+    expect(FakeRoomSocket.instances).toHaveLength(1);
+  });
+
+  it("keeps music muted at zero while waiting for the shared reveal", async () => {
+    const onMusicStateChange = vi.fn();
+    render(
+      <PartyGame onBack={vi.fn()} onMusicStateChange={onMusicStateChange} />,
+    );
+    const socket = FakeRoomSocket.instances[0];
+    act(() => socket.message({ type: "room", room: activeRoom() }));
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    expect(onMusicStateChange).toHaveBeenLastCalledWith("gameplay", true);
+    await act(async () => vi.advanceTimersByTimeAsync(5_000));
+    expect(onMusicStateChange).toHaveBeenLastCalledWith("gameplay", true);
+    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    expect(onMusicStateChange).toHaveBeenLastCalledWith("gameplay", true);
+  });
+
   it("reveals an alarm-driven round immediately and celebrates once without polling or reconnecting on preference changes", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch");
     const firstCallback = vi.fn();
