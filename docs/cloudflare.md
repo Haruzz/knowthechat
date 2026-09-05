@@ -8,6 +8,7 @@ The application is one Cloudflare Worker deployment, not two publicly routed Wor
 - `assets.not_found_handling` supplies `index.html` for SPA navigation.
 - `assets.run_worker_first: ["/api/*"]` invokes Python only for API paths.
 - Python returns 404 for unknown `/api/*` paths instead of falling through to the SPA.
+- `/api/rooms*` uses the same Python Worker and internal `GAME_ROOMS` Durable Object binding. HTTP commands use FastAPI; `/:code/events` upgrades forward natively to the object for WebSocket hibernation.
 - The Worker name remains `know-the-chat`.
 - `knowthechat.com` and `www.knowthechat.com` are declared as Custom Domains because the Worker is the origin.
 
@@ -26,6 +27,22 @@ This avoids a frontend proxy Worker and service-binding hop while retaining `fet
 - `workers-py` and `workers-runtime-sdk` are development/tooling dependencies, not generic server frameworks.
 
 Before adding Python packages, check Cloudflare's current Python package support. Packages requiring unavailable native extensions, subprocesses, a writable persistent filesystem, or a conventional long-running CPython server are not safe assumptions.
+
+## Multiplayer state and cost
+
+`backend/wrangler.jsonc` declares `GAME_ROOMS` bound to the exported Python `GameRoom` class, with the `v1-game-rooms` migration creating SQLite-backed Durable Objects. Wrangler applies this new namespace during an authorized deployment. Local `pywrangler dev` provisions and persists the binding locally; no Cloudflare account mutation is needed to develop or test lobbies.
+
+Each code has its own object, so unrelated matches do not share a global coordination bottleneck. Each room retains at most eight players, 20 selected quotes, and a bounded state payload. Round deadlines and cleanup use alarms instead of server-side timer loops. Two-hour room expiry and 15-minute member inactivity limit retained state; explicit departure of the final member also deletes the room. The existing `2026-08-22` compatibility date supports `deleteAll()` deleting stored data and alarms together, and has not been changed for multiplayer.
+
+[Workers Paid](https://developers.cloudflare.com/workers/platform/pricing/) includes Durable Objects usage within the account's minimum $5 USD monthly plan. Lobbies do not require a separate Durable Objects subscription. [Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/limits-and-pricing/) measures the time spent building and deploying the app; live requests, Durable Object compute and storage have their own included allowances and overage rates within the platform.
+
+As checked on 2026-09-05, the [Durable Objects pricing page](https://developers.cloudflare.com/durable-objects/platform/pricing/) lists these monthly Paid allowances: one million requests, 400,000 GB-seconds of compute, 25 billion SQLite row reads, 50 million row writes and 5 GB-month of stored data. Usage above those allowances is metered; ordinary Worker requests and CPU time are also accounted for. Use the linked pricing pages and account usage metrics when estimating a bill.
+
+Room updates now use hibernating WebSockets. Cloudflare keeps idle clients connected while allowing Python to sleep, and automatic ping/pong messages do not wake the room. Personalized updates follow real changes and deadline alarms, so healthy clients no longer request state every 1.5 seconds. Automatic reconnection retains an HTTP fallback for networks that block WebSockets. This reduces repeated traffic; it does not remove usage metering.
+
+The upgrade uses the existing class, binding, SQLite migration and compatibility date. `acceptWebSocket()`, socket attachments and auto-response timestamps support recovery after hibernation; the existing date also enables automatic close replies. See [WebSocket hibernation](https://developers.cloudflare.com/durable-objects/best-practices/websockets/) and the [Durable Object state API](https://developers.cloudflare.com/durable-objects/api/state/).
+
+The same-origin API validates browser origins and accepts HTTP player credentials in `Authorization: Bearer` headers. Browser WebSocket upgrades offer the credential through a `session.<token>` subprotocol and negotiate only `knowthechat.v1` in the response. Tokens are randomly generated and stored only as SHA-256 digests in room state. Neither browser tokens nor private answers should be added to URLs or logs. Local Vite proxying preserves the original host so its forwarded requests satisfy the same origin check.
 
 ## Caching
 
@@ -114,9 +131,9 @@ npm run check
 ```
 
 Production deployments are performed by Workers Builds after a push to `main`.
-The only required binding is the automatically provisioned `ASSETS` binding.
+Required bindings are the automatically provisioned `ASSETS` binding and the configured SQLite-backed `GAME_ROOMS` Durable Object namespace.
 
-Rollback immediately if health checks fail:
+For normal code-only deployments, inspect versions and roll back if health checks fail:
 
 ```bash
 cd backend
@@ -125,7 +142,9 @@ uv run pywrangler versions list
 uv run pywrangler rollback
 ```
 
-After rollback, verify `/`, `/logo.png`, a `POST /api/public-archive`, and both custom hostnames. The prior Worker version includes its prior script/assets deployment, so no DNS reversal should be necessary.
+After rollback, verify `/`, `/logo.png`, a `POST /api/public-archive`, a two-player lobby, and both custom hostnames. The prior Worker version includes its prior script/assets deployment, so no DNS reversal should be necessary.
+
+Cloudflare does not allow rollback across a Durable Object class lifecycle migration. The first deployment introducing `v1-game-rooms` therefore needs a forward-fix plan: retain the class export, binding, and migration history when reverting unrelated application code. Do not delete the namespace or add a class deletion migration to undo a frontend issue, because deleting a class deletes all of its rooms and stored data. Deployment, rollback, and account changes require explicit user authorization.
 
 ## Known toolchain limitations
 
@@ -146,3 +165,10 @@ After rollback, verify `/`, `/logo.png`, a `POST /api/public-archive`, and both 
 - [Workers Builds branch control](https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/)
 - [Installing uv](https://docs.astral.sh/uv/getting-started/installation/)
 - [Wrangler configuration](https://developers.cloudflare.com/workers/wrangler/configuration/)
+- [Python Durable Objects support](https://developers.cloudflare.com/changelog/post/2025-05-14-python-worker-durable-object/)
+- [Durable Object rules and SQLite storage](https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/)
+- [Durable Object alarms](https://developers.cloudflare.com/durable-objects/api/alarms/)
+- [Atomic data and alarm cleanup](https://developers.cloudflare.com/changelog/post/2026-02-24-deleteall-deletes-alarms/)
+- [Workers Builds pricing](https://developers.cloudflare.com/workers/ci-cd/builds/limits-and-pricing/)
+- [Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/)
+- [Rollback binding constraints](https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/#bindings)

@@ -9,7 +9,7 @@ export default defineConfig({
   plugins: [react(), cloudflare()],
   server: {
     proxy: {
-      "/api": { target: backendOrigin, changeOrigin: true },
+      "/api": { target: backendOrigin, changeOrigin: false, ws: true },
     },
   },
 });

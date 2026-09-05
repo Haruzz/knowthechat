@@ -12,7 +12,9 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from api_models import ErrorResponse, PublicArchiveRequest, PublicArchiveResponse
 from providers.protocols import ArchiveProviderUnavailableError
+from room_routes import add_room_routes
 from services.public_archive import NoPublicArchiveError
+from services.rooms import RoomGateway
 
 MAX_REQUEST_BYTES = 16_384
 NO_STORE = {"Cache-Control": "no-store"}
@@ -40,7 +42,9 @@ class BoundedRequestBodyMiddleware:
         if (
             scope["type"] != "http"
             or scope["method"] != "POST"
-            or scope["path"] != "/api/public-archive"
+            or not (
+                scope["path"] == "/api/public-archive" or scope["path"].startswith("/api/rooms")
+            )
         ):
             await self.app(scope, receive, send)
             return
@@ -84,7 +88,7 @@ class BoundedRequestBodyMiddleware:
         await self.app(scope, replay_receive, send)
 
 
-def create_app(service: ArchiveService) -> FastAPI:
+def create_app(service: ArchiveService, room_gateway: RoomGateway | None = None) -> FastAPI:
     app = FastAPI(
         title="Know The Chat API",
         docs_url=None,
@@ -94,6 +98,10 @@ def create_app(service: ArchiveService) -> FastAPI:
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(_request: Request, _error: RequestValidationError) -> JSONResponse:
+        if _request.url.path.startswith("/api/rooms"):
+            return _error_response(
+                "Check your lobby name, settings, and answer, then try again.", 400
+            )
         return _error_response("Enter a valid Twitch channel name.", 400)
 
     @app.exception_handler(NoPublicArchiveError)
@@ -131,4 +139,5 @@ def create_app(service: ArchiveService) -> FastAPI:
         response.headers.update(NO_STORE)
         return await service.execute(payload)
 
+    add_room_routes(app, service, room_gateway)
     return app

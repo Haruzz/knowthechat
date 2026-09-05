@@ -1,13 +1,20 @@
 from __future__ import annotations
 
-import asgi
-from workers import Request, WorkerEntrypoint
+from typing import TYPE_CHECKING, cast
+
+from workers import Request, Response, WorkerEntrypoint, asgi
 
 from fastapi_app import BoundedRequestBodyMiddleware, create_app
 from providers.archives import RecentMessagesProvider, ZonianHistoricalProvider
 from providers.emotes import BetterTtvProvider, FrankerFaceZProvider, SevenTvProvider
+from runtime.bindings import RoomEnvironment
 from runtime.http import CloudflareJsonHttpClient
+from runtime.room_events import forward_room_events
+from runtime.rooms import GameRoom as GameRoom
 from services.public_archive import PublicArchiveService, StructuredLogger
+
+if TYPE_CHECKING:
+    from js import Response as JsResponse  # pyright: ignore[reportMissingModuleSource]
 
 RECENT_PROVIDER_URLS = (
     "https://recent-messages.robotty.de/api/v2/recent-messages/",
@@ -30,7 +37,10 @@ APP = BoundedRequestBodyMiddleware(create_app(_build_service()))
 
 
 class Default(WorkerEntrypoint):
-    async def fetch(self, request: Request):
-        return await asgi.fetch(  # pyright: ignore[reportAttributeAccessIssue]
-            APP, request, self.env
-        )
+    async def fetch(self, request: Request) -> Response | JsResponse:
+        # Workers wraps env bindings in Python RPC adapters before this handler.
+        env = cast(RoomEnvironment, self.env)
+        events = await forward_room_events(request, env)
+        if events is not None:
+            return events
+        return await asgi.fetch(APP, request, env)

@@ -6,6 +6,12 @@
   "preview_urls": false,
   "compatibility_date": "2026-08-22",
   "compatibility_flags": ["python_workers"],
+  "durable_objects": {
+    "bindings": [{ "name": "GAME_ROOMS", "class_name": "GameRoom" }],
+  },
+  "migrations": [
+    { "tag": "v1-game-rooms", "new_sqlite_classes": ["GameRoom"] },
+  ],
   "limits": {
     "cpu_ms": 60000,
   },

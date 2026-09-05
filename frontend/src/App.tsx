@@ -1,4 +1,21 @@
-import { CSSProperties, SubmitEvent, useEffect, useState } from "react";
+import {
+  CSSProperties,
+  SubmitEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+
+import StreakEffects, { GamePreferences } from "./StreakEffects";
+import PartyGame from "./PartyGame";
+import {
+  playAnswerSound,
+  playStreakSound,
+  prepareAudio,
+  stopAudio,
+} from "./audio";
+import "./AppModes.css";
 
 type Chatter = {
   id: string;
@@ -31,6 +48,35 @@ const ARCHIVE_YEARS = Array.from(
   (_, index) => CURRENT_YEAR - index,
 );
 
+function readSeenHistory(channel: string): string[] {
+  try {
+    const stored: unknown = JSON.parse(
+      localStorage.getItem(`knowthechat-seen:${channel}`) || "[]",
+    );
+    return Array.isArray(stored)
+      ? stored.filter((id): id is string => typeof id === "string").slice(-500)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function readPreference(key: string): boolean {
+  try {
+    return localStorage.getItem(`knowthechat-${key}`) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function savePreference(key: string, value: boolean) {
+  try {
+    localStorage.setItem(`knowthechat-${key}`, String(value));
+  } catch {
+    /* Preferences still work for this session when storage is unavailable. */
+  }
+}
+
 function shuffled<T>(items: T[]) {
   const copy = [...items];
   for (let i = copy.length - 1; i > 0; i--) {
@@ -38,39 +84,6 @@ function shuffled<T>(items: T[]) {
     [copy[i], copy[j]] = [copy[j], copy[i]];
   }
   return copy;
-}
-
-function playAnswerSound(correct: boolean) {
-  try {
-    const AudioContextClass = window.AudioContext;
-    const context = new AudioContextClass();
-    const notes = correct ? [523.25, 659.25, 783.99] : [392, 329.63, 261.63];
-    notes.forEach((frequency, index) => {
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      const start = context.currentTime + index * (correct ? 0.1 : 0.18);
-      oscillator.type = correct ? "sine" : "triangle";
-      oscillator.frequency.setValueAtTime(frequency, start);
-      if (!correct)
-        oscillator.frequency.exponentialRampToValueAtTime(
-          frequency * 0.82,
-          start + 0.26,
-        );
-      gain.gain.setValueAtTime(0, start);
-      gain.gain.linearRampToValueAtTime(correct ? 0.11 : 0.075, start + 0.025);
-      gain.gain.exponentialRampToValueAtTime(
-        0.001,
-        start + (correct ? 0.28 : 0.32),
-      );
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      oscillator.start(start);
-      oscillator.stop(start + (correct ? 0.3 : 0.34));
-    });
-    setTimeout(() => void context.close(), 700);
-  } catch {
-    /* Sound is optional; browsers may deny audio playback. */
-  }
 }
 
 async function addBrowserSevenTv(quotes: Quote[], roomId: string) {
@@ -256,7 +269,15 @@ function makeRounds(quotes: Quote[], chatters: Chatter[]) {
   return rounds;
 }
 
-export default function WhoSaidIt() {
+export default function App() {
+  const [playWithFriends, setPlayWithFriends] = useState(() => {
+    if (new URLSearchParams(window.location.search).has("room")) return true;
+    try {
+      return sessionStorage.getItem("knowthechat-party-session") !== null;
+    } catch {
+      return false;
+    }
+  });
   const [channel, setChannel] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -275,45 +296,129 @@ export default function WhoSaidIt() {
   const [index, setIndex] = useState(0);
   const [answered, setAnswered] = useState<string | null>(null);
   const [correct, setCorrect] = useState(0);
+  const [streak, setStreak] = useState(0);
+  const [bestStreak, setBestStreak] = useState(0);
+  const [milestone, setMilestone] = useState<number | null>(null);
+  const [soundEnabled, setSoundEnabled] = useState(() =>
+    readPreference("sound"),
+  );
+  const [effectsEnabled, setEffectsEnabled] = useState(() =>
+    readPreference("effects"),
+  );
+  const answerLock = useRef(false);
   const current = rounds[index];
+  const prepareGameAudio = useCallback(() => {
+    if (soundEnabled) prepareAudio();
+  }, [soundEnabled]);
+  const answerSound = useCallback(
+    (wasCorrect: boolean, nextStreak: number) => {
+      if (!soundEnabled) return;
+      if (wasCorrect && nextStreak > 0 && nextStreak % 5 === 0) {
+        playStreakSound(nextStreak);
+      } else {
+        playAnswerSound(wasCorrect);
+      }
+    },
+    [soundEnabled],
+  );
+
+  const answer = useCallback(
+    (name: string) => {
+      if (
+        !current ||
+        answered ||
+        answerLock.current ||
+        !current.choices.includes(name)
+      )
+        return;
+      answerLock.current = true;
+      const isCorrect = name === current.author;
+      setAnswered(name);
+      answerSound(isCorrect, isCorrect ? streak + 1 : 0);
+      if (isCorrect) {
+        const nextStreak = streak + 1;
+        setCorrect((value) => value + 1);
+        setStreak(nextStreak);
+        setBestStreak((value) => Math.max(value, nextStreak));
+        if (nextStreak % 5 === 0) setMilestone(nextStreak);
+      } else {
+        setStreak(0);
+        setMilestone(null);
+      }
+    },
+    [answered, current, answerSound, streak],
+  );
+
+  const next = useCallback(() => {
+    if (!answered || !answerLock.current) return;
+    answerLock.current = false;
+    setAnswered(null);
+    setIndex((value) => value + 1);
+  }, [answered]);
 
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
-      if (!current) return;
+      if (
+        !current ||
+        event.repeat ||
+        event.defaultPrevented ||
+        event.ctrlKey ||
+        event.altKey ||
+        event.metaKey
+      )
+        return;
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        target.closest(
+          'input, textarea, select, [contenteditable]:not([contenteditable="false"])',
+        )
+      )
+        return;
       if (["1", "2", "3"].includes(event.key) && !answered) {
         const name = current.choices[Number(event.key) - 1];
         if (name) {
-          const isCorrect = name === current.author;
-          setAnswered(name);
-          playAnswerSound(isCorrect);
-          if (isCorrect) setCorrect((value) => value + 1);
+          event.preventDefault();
+          answer(name);
         }
       }
       if ((event.key === "Enter" || event.key === " ") && answered) {
-        setAnswered(null);
-        setIndex((value) => value + 1);
+        // Let focused controls handle their own native keyboard activation.
+        if (
+          target instanceof HTMLElement &&
+          target.closest('button, a, [role="button"]')
+        )
+          return;
+        event.preventDefault();
+        next();
       }
     };
     addEventListener("keydown", key);
     return () => removeEventListener("keydown", key);
-  }, [current, answered]);
+  }, [current, answered, answer, next]);
+  useEffect(() => {
+    if (milestone === null) return;
+    const timer = window.setTimeout(() => setMilestone(null), 3_500);
+    return () => window.clearTimeout(timer);
+  }, [milestone]);
   useEffect(() => {
     if (!current || !channel) return;
     const key = `knowthechat-seen:${channel}`;
-    let seen: string[] = [];
+    const seen = readSeenHistory(channel);
+    if (seen.includes(current.id)) return;
     try {
-      seen = JSON.parse(localStorage.getItem(key) || "[]");
+      localStorage.setItem(
+        key,
+        JSON.stringify([...seen, current.id].slice(-500)),
+      );
     } catch {
-      /* Ignore malformed browser-local history. */
-    }
-    if (!seen.includes(current.id)) {
-      seen.push(current.id);
-      localStorage.setItem(key, JSON.stringify(seen.slice(-500)));
+      /* History is optional when browser storage is full or disabled. */
     }
   }, [current, channel]);
 
   async function load(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
+    prepareGameAudio();
     setLoading(true);
     setLoadingProgress(4);
     setStreamer(null);
@@ -372,12 +477,7 @@ export default function WhoSaidIt() {
         data.roomId ?? "",
       );
       setLoadingProgress(97);
-      let seen: string[] = [];
-      try {
-        seen = JSON.parse(
-          localStorage.getItem(`knowthechat-seen:${data.channel}`) || "[]",
-        );
-      } catch {}
+      const seen = readSeenHistory(data.channel);
       const freshQuotes = enriched.filter(
         (quote: Quote) => !seen.includes(quote.id),
       );
@@ -402,28 +502,46 @@ export default function WhoSaidIt() {
       setIndex(0);
       setCorrect(0);
       setAnswered(null);
+      setStreak(0);
+      setBestStreak(0);
+      setMilestone(null);
+      answerLock.current = false;
+    } catch {
+      setError(
+        "Could not load the archive. Check your connection and try again.",
+      );
     } finally {
       window.clearInterval(timer);
       setLoading(false);
     }
-  }
-  function answer(name: string) {
-    if (answered || !name) return;
-    const isCorrect = name === current.author;
-    setAnswered(name);
-    playAnswerSound(isCorrect);
-    if (isCorrect) setCorrect((v) => v + 1);
-  }
-  function next() {
-    setAnswered(null);
-    setIndex((v) => v + 1);
   }
   function reset() {
     setRounds([]);
     setIndex(0);
     setAnswered(null);
     setCorrect(0);
+    setStreak(0);
+    setBestStreak(0);
+    setMilestone(null);
+    answerLock.current = false;
   }
+
+  const preferences = (
+    <GamePreferences
+      soundEnabled={soundEnabled}
+      effectsEnabled={effectsEnabled}
+      onSoundChange={() => {
+        if (soundEnabled) stopAudio();
+        else prepareAudio();
+        savePreference("sound", !soundEnabled);
+        setSoundEnabled(!soundEnabled);
+      }}
+      onEffectsChange={() => {
+        savePreference("effects", !effectsEnabled);
+        setEffectsEnabled(!effectsEnabled);
+      }}
+    />
+  );
 
   const loadingStage =
     loadingProgress < 25
@@ -450,6 +568,17 @@ export default function WhoSaidIt() {
         "100": "Wide · top 100",
       } as Record<string, string>
     )[chatterPool] ?? "Balanced · top 50";
+  if (playWithFriends)
+    return (
+      <PartyGame
+        onBack={() => setPlayWithFriends(false)}
+        effectsEnabled={effectsEnabled}
+        preferences={preferences}
+        onRoundRevealed={answerSound}
+        onInteraction={prepareGameAudio}
+      />
+    );
+
   if (loading)
     return (
       <main className="simple-shell" translate="no">
@@ -507,6 +636,16 @@ export default function WhoSaidIt() {
             {correct} / {rounds.length}
           </h1>
           <p>You knew {channel}&apos;s chat.</p>
+          <dl className="end-performance">
+            <div>
+              <dt>Accuracy</dt>
+              <dd>{Math.round((correct / rounds.length) * 100)}%</dd>
+            </div>
+            <div>
+              <dt>Best streak</dt>
+              <dd>{bestStreak}</dd>
+            </div>
+          </dl>
           <button className="launch" onClick={reset}>
             Try another channel
           </button>
@@ -531,6 +670,26 @@ export default function WhoSaidIt() {
             Enter a Twitch channel. We’ll keep only distinctive messages from
             its most recognizable chatters and start the game.
           </p>
+          <div className="play-mode-picker" role="group" aria-label="Game mode">
+            <button type="button" aria-pressed="true">
+              <span aria-hidden="true">✦</span>
+              <span>
+                <strong>Solo case</strong>
+                <small>Find your streak</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              aria-pressed="false"
+              onClick={() => setPlayWithFriends(true)}
+            >
+              <span aria-hidden="true">↗</span>
+              <span>
+                <strong>Play with friends</strong>
+                <small>Private rooms · 2–8 players</small>
+              </span>
+            </button>
+          </div>
           <form className="channel-form" onSubmit={load}>
             <label htmlFor="channel">Twitch channel</label>
             <div>
@@ -587,7 +746,12 @@ export default function WhoSaidIt() {
               </label>
             </section>
           </form>
-          {error && <p className="simple-error">{error}</p>}
+          {preferences}
+          {error && (
+            <p className="simple-error" role="alert">
+              {error}
+            </p>
+          )}
           <p className="privacy-note">
             Public archives only · actual coverage depends on the channel
             archive · no Twitch connection
@@ -601,7 +765,10 @@ export default function WhoSaidIt() {
   const completedQuestions = index + (answered ? 1 : 0);
   const roundProgress = ((index + 1) / rounds.length) * 100;
   return (
-    <main className="game-shell" translate="no">
+    <main
+      className={`game-shell ${effectsEnabled ? "" : "effects-off"}`}
+      translate="no"
+    >
       <header className="game-top">
         <button
           className="brand mini"
@@ -650,6 +817,7 @@ export default function WhoSaidIt() {
           >
             <span style={{ width: `${roundProgress}%` }} />
           </div>
+          {preferences}
         </div>
         <div className="game-channel">
           {streamer && <img src={streamer.logo} alt="" />}
@@ -660,6 +828,11 @@ export default function WhoSaidIt() {
         </div>
       </header>
       <div className="game-stage">
+        <StreakEffects
+          streak={streak}
+          milestone={milestone}
+          enabled={effectsEnabled}
+        />
         <section
           key={current.id}
           className={`game-card ${answered ? (answered === current.author ? "answer-correct" : "answer-wrong") : ""}`}
@@ -685,6 +858,7 @@ export default function WhoSaidIt() {
                 <button
                   key={name}
                   onClick={() => answer(name)}
+                  aria-disabled={answered !== null}
                   className={
                     answered
                       ? name === current.author

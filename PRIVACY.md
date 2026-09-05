@@ -1,6 +1,6 @@
 # Privacy policy
 
-Last updated September 3, 2026.
+Last updated September 5, 2026.
 
 Know The Chat is an unofficial Twitch chat guessing game operated by Harun
 Bulut. The public version of this policy is available at
@@ -19,9 +19,25 @@ credentials.
 ## Browser storage
 
 The game stores a per-channel list of previously seen message identifiers in
-your browser's local storage to reduce repeated rounds. You can remove this
-information using your browser's site-data controls. Google's consent platform
-may also store your privacy choices so it can remember them.
+your browser's local storage to reduce repeated rounds, along with sound and
+visual-effects preferences. You can remove this information using your
+browser's site-data controls. Google's consent platform may also store your
+privacy choices so it can remember them.
+
+A multiplayer room code and session token are stored in the browser tab's
+session storage to allow reconnection. Leaving clears the saved player session.
+Invite links contain a room code, not this token. Anyone with the room code can
+join while the room is accepting players; these are casual private rooms
+without Twitch accounts.
+
+## Private multiplayer rooms
+
+Private multiplayer rooms store chosen display names, player-session token
+hashes, selected public chat clues, guesses, scores, and timestamps in
+Cloudflare Durable Object storage. Other room participants can see display
+names, scores, and revealed guesses. Rooms expire after two hours; active room
+data is deleted on expiry or when the last participant leaves. Cloudflare
+platform backup and recovery retention may outlast application deletion.
 
 ## Hosting and operational logs
 
@@ -69,7 +85,7 @@ other advertising vendors that may receive information.
 
 ## Retention and your choices
 
-Browser data remains until you clear it. Operational information and
+Local storage data remains until you clear it. Operational information and
 information processed by independent providers are retained according to their
 respective settings and policies. You can decline or manage advertising consent
 when the Google message is presented, use an available "Do Not Sell or Share My

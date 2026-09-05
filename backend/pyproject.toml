@@ -30,6 +30,8 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py313"
+# Official generated runtime declarations are not authored application code.
+extend-exclude = ["typings"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
@@ -37,6 +39,7 @@ select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
 [tool.pyright]
 include = ["src", "tests"]
 extraPaths = ["src"]
+stubPath = "typings"
 pythonVersion = "3.13"
 typeCheckingMode = "standard"
 reportMissingTypeStubs = false

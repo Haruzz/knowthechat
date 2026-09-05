@@ -4,9 +4,55 @@
 
 The browser runs the React application from `frontend/`. React owns setup, loading, game and results state; keyboard controls; sounds; local seen-message history; streamer profile lookup; and rendering Twitch and third-party emotes. TypeScript catches UI contract mistakes before the browser receives the code.
 
+In multiplayer, React renders a player-specific snapshot from the server. The server owns membership, the host, the deck, deadlines, locked guesses, scoring, and round transitions. The solo game's existing browser-owned state and `POST /api/public-archive` contract remain supported.
+
 Cloudflare runs `backend/src/main.py` in a Python Worker. Cloudflare's ASGI adapter invokes the FastAPI application directly inside the Worker isolate; there is no Uvicorn process, socket listener, filesystem-based serving, subprocess, or conventional Linux server. FastAPI validates and routes the public API request, while the existing service asks public archive/emote providers for data, filters and ranks messages, and returns the response model.
 
 Workers Static Assets stores the Vite output separately from Python modules. Requests for frontend files normally never invoke Python.
+
+## Multiplayer lobbies
+
+One Python `GameRoom` Durable Object coordinates each six-character lobby code through the `GAME_ROOMS` binding. Its SQLite storage contains one bounded JSON snapshot; creating a lobby stores only its selected 5, 10, or 20 rounds, not the downloaded archive. No D1, KV, second Worker, or additional public API origin is required.
+
+```text
+POST /api/rooms
+  -> bounded body and Pydantic settings validation
+  -> PublicArchiveService fetches and selects real chat on the server
+  -> server generates a private deck, three choices per round, and opaque round IDs
+  -> GAME_ROOMS.getByName(code).initialize(private state)
+  -> host bearer token and waiting-room snapshot
+
+POST /api/rooms/:code/join
+  -> validate display name and room code
+  -> room validates capacity, unique name, and waiting phase
+  -> member bearer token and player-specific snapshot
+
+GET /api/rooms/:code/events (WebSocket upgrade)
+  -> origin and session subprotocol validation before acceptance
+  -> native Worker forwarding to the same GameRoom, outside ASGI
+  -> hibernating socket with player ID attachment and personalized snapshots
+
+GET /api/rooms/:code (fallback); POST /api/rooms/:code/{start,guess,next,rematch,leave}
+  -> bearer token and Pydantic command validation
+  -> room loads SQLite state, applies deadlines, authenticates, mutates, and saves
+  -> player-specific snapshot with Cache-Control: no-store
+```
+
+All network and archive I/O finishes before initializing the object. Within a room command, SQLite load, rule execution, and save are synchronous with no intervening `await`, so simultaneous guesses cannot overwrite each other. RPC calls use JSON strings across the Python/JavaScript binding boundary. The object retains no authoritative state in memory and restores correctly after eviction.
+
+Each round lasts 15, 20, or 30 seconds. Clients render the countdown from epoch-millisecond `deadline` and `serverNow`, but only the server clock decides whether a guess is on time. A Durable Object alarm closes the round without needing a connected browser; every command also applies a passed deadline before accepting input. A round reveals early once all current players answer. Correct guesses earn 1,000 points plus up to 500 for speed; incorrect or missing guesses earn zero. Scores and streaks are applied together at reveal, preventing another player's changing score from disclosing the answer. Before reveal, a player sees only their own choice and whether other players have answered; no answer, future deck, raw archive quote IDs, or token hashes enter the public snapshot.
+
+The host starts the match, advances from the reveal screen, and starts a rematch. Advancing after the last reveal shows the final standings. A rematch returns everyone to the waiting room, clears scores and streaks, and shuffles the same saved chat with fresh round IDs and choice order. It does not refetch the archive. Explicit host departure transfers hosting to the next member. New players may join only while waiting, with a maximum of eight players and unique display names.
+
+Lobbies have a fixed two-hour lifetime. Members inactive for 15 minutes are removed, with host transfer when necessary; HTTP presence updates are throttled, and connected players' presence is recovered from automatic WebSocket ping timestamps before applying timeouts. The earliest round deadline, membership timeout, or room expiry schedules the next alarm. Empty and expired rooms use `deleteAll()` to remove stored data and alarms. Requests for nonexistent codes read schema metadata without creating tables, stored values, or alarms.
+
+The primary transport uses same-origin hibernating WebSockets. The native Worker forwards the upgrade directly to the room so it can use `ctx.acceptWebSocket()`; the ordinary ASGI WebSocket adapter would keep the object awake. Each connection attaches only its player ID. On every committed change and alarm-driven reveal, the object sends a separate redacted snapshot to each current member. A persisted, increasing revision prevents a delayed HTTP response from overwriting newer pushed state in the browser.
+
+The browser offers `knowthechat.v1` and `session.<token>` as WebSocket subprotocols; the response selects only `knowthechat.v1`. Tokens never enter URLs. Upgrades validate the same origin and existing membership before acceptance, with at most two sockets per player and sixteen per room. Leaving or expiring a room closes its sockets.
+
+Browser heartbeat messages receive a static `ping`/`pong` auto-response from Cloudflare without waking Python. There are no server timer loops. Socket attachments and auto-response timestamps remain available after hibernation; SQLite remains the game authority. Clients reconnect with bounded backoff and fall back to HTTP state requests when WebSockets are unavailable. A healthy socket stops fallback polling.
+
+The first multiplayer version used polling to simplify its transport; this was an implementation choice, not a Workers plan restriction. Python hibernation support is documented in [Cloudflare's WebSocket guide](https://developers.cloudflare.com/durable-objects/best-practices/websockets/).
 
 ## Request lifecycle
 
@@ -41,7 +87,10 @@ Historical and recent messages are never mixed. A confirmed missing channel arch
 - `providers/` contains provider-specific URLs and response parsing.
 - `providers/protocols.py` defines small structural interfaces. Fakes satisfy them without inheritance.
 - `PublicArchiveService` receives providers through its constructor and orchestrates them.
-- `main.py` passes Cloudflare requests to FastAPI through `asgi.fetch()` and deliberately contains no filtering or ranking rules.
+- `main.py` forwards lobby event upgrades natively and passes other Cloudflare requests to FastAPI through `asgi.fetch()`; it contains no game, filtering or ranking rules.
+- `room_models.py` and `room_routes.py` validate and route the multiplayer HTTP boundary through an injectable `RoomGateway` protocol.
+- `services/rooms.py` fetches and generates private decks; `services/room_commands.py` dispatches room actions; `domain/rooms.py` owns deterministic game rules and redacted snapshots.
+- `runtime/room_events.py` validates and forwards native event upgrades. `runtime/rooms.py` adapts the Cloudflare binding, SQLite persistence, hibernating sockets and alarms. `main.py` exports the `GameRoom` class for Wrangler.
 
 `Protocol` is used because archive and emote sources are replaceable dependencies and tests need small fakes. There are no ABCs: the implementations share no state or algorithm that would justify runtime inheritance. Constructor injection keeps wiring visible and avoids a DI framework.
 
