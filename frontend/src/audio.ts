@@ -7,7 +7,12 @@ type Tone = {
   endFrequency?: number;
 };
 
-type Voice = { oscillator: OscillatorNode; gain: GainNode };
+type Voice = { source: AudioScheduledSourceNode; gain: GainNode };
+type ClockSound = "tick" | "tock";
+
+const MAX_CLOCK_BYTES = 128 * 1_024;
+const clockBuffers = new Map<ClockSound, AudioBuffer>();
+let clockLoad: Promise<void> | null = null;
 
 let context: AudioContext | null = null;
 let resumeAttempt: Promise<void> | null = null;
@@ -27,37 +32,111 @@ function getContext(): AudioContext | null {
   }
 }
 
-function resume(audio: AudioContext): Promise<void> {
+function resume(audio: AudioContext, fromGesture = false): Promise<void> {
   if (audio.state === "running") return Promise.resolve();
-  if (!resumeAttempt) {
-    resumeAttempt = audio.resume().finally(() => {
-      resumeAttempt = null;
+  if (!resumeAttempt || fromGesture) {
+    // An autoplay-blocked resume can remain pending until a fresh gesture retries it.
+    const attempt: Promise<void> = audio.resume().finally(() => {
+      if (resumeAttempt === attempt) resumeAttempt = null;
     });
+    resumeAttempt = attempt;
   }
   return resumeAttempt;
 }
 
-/** Call from a user gesture so later multiplayer reveals can play audio. */
-export function prepareAudio(): void {
+async function loadClockBuffer(
+  audio: AudioContext,
+  sound: ClockSound,
+): Promise<void> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 10_000);
   try {
-    const audio = getContext();
-    if (audio) void resume(audio).catch(() => {});
+    const response = await fetch(`/audio/countdown-${sound}.wav`, {
+      signal: controller.signal,
+    });
+    if (!response.ok || !response.body) return;
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let length = 0;
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        length += chunk.value.byteLength;
+        if (length > MAX_CLOCK_BYTES) {
+          await reader.cancel();
+          return;
+        }
+        chunks.push(chunk.value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    if (controller.signal.aborted || length === 0) return;
+    const bytes = new Uint8Array(length);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    const buffer = await audio.decodeAudioData(bytes.buffer);
+    if (
+      !controller.signal.aborted &&
+      buffer.duration > 0 &&
+      buffer.duration <= 1
+    )
+      clockBuffers.set(sound, buffer);
   } catch {
-    // Audio is optional, including in browsers that block playback.
+    // Missing or undecodable clock assets must not interrupt gameplay.
+  } finally {
+    window.clearTimeout(timeout);
   }
 }
 
+function preloadClock(audio: AudioContext): Promise<void> {
+  // Cache the attempt as well as successful buffers: gestures cannot cause a
+  // request storm if a static asset is unavailable. A reload permits a retry.
+  clockLoad ??= Promise.all([
+    loadClockBuffer(audio, "tick"),
+    loadClockBuffer(audio, "tock"),
+  ]).then(() => {});
+  return clockLoad;
+}
+
+/** Call from a user gesture so later multiplayer reveals can play audio. */
+export function prepareAudio(): Promise<void> {
+  try {
+    const audio = getContext();
+    if (audio)
+      return Promise.all([resume(audio, true), preloadClock(audio)]).then(
+        () => {},
+        () => {},
+      );
+  } catch {
+    // Audio is optional, including in browsers that block playback.
+  }
+  return Promise.resolve();
+}
+
 function release(voice: Voice): void {
-  voice.oscillator.onended = null;
-  voice.oscillator.disconnect();
-  voice.gain.disconnect();
+  voice.source.onended = null;
   voices.delete(voice);
+  try {
+    voice.source.disconnect();
+  } catch {
+    /* The device can close independently. */
+  }
+  try {
+    voice.gain.disconnect();
+  } catch {
+    /* Already disconnected. */
+  }
 }
 
 function stopVoices(): void {
   for (const voice of voices) {
     try {
-      voice.oscillator.stop();
+      voice.source.stop();
     } catch {
       // The context may already have been closed by the browser.
     } finally {
@@ -72,11 +151,10 @@ export function stopAudio(): void {
   stopVoices();
 }
 
-function play(tones: readonly Tone[], immediateOnly = false): void {
+function play(tones: readonly Tone[]): void {
   try {
-    const audio = immediateOnly ? context : getContext();
+    const audio = getContext();
     if (!audio) return;
-    if (immediateOnly && (audio.state !== "running" || document.hidden)) return;
     const request = ++playbackRequest;
     const start = () => {
       // Never replay a queue of old reveals after the browser allows audio.
@@ -86,7 +164,7 @@ function play(tones: readonly Tone[], immediateOnly = false): void {
         for (const tone of tones) {
           const oscillator = audio.createOscillator();
           const gain = audio.createGain();
-          const voice = { oscillator, gain };
+          const voice = { source: oscillator, gain };
           voices.add(voice);
           oscillator.onended = () => release(voice);
           const begins = audio.currentTime + tone.offset;
@@ -128,19 +206,26 @@ function play(tones: readonly Tone[], immediateOnly = false): void {
 export function playCountdownTick(secondsLeft: number): void {
   if (!Number.isInteger(secondsLeft) || secondsLeft < 1 || secondsLeft > 5)
     return;
-  play(
-    [
-      {
-        frequency: secondsLeft % 2 === 1 ? 880 : 660,
-        endFrequency: secondsLeft % 2 === 1 ? 560 : 420,
-        offset: 0,
-        duration: 0.06,
-        type: "sine",
-        volume: 0.035,
-      },
-    ],
-    true,
-  );
+  const audio = context;
+  const buffer = clockBuffers.get(secondsLeft % 2 === 1 ? "tick" : "tock");
+  if (!audio || audio.state !== "running" || document.hidden || !buffer) return;
+  try {
+    playbackRequest += 1;
+    stopVoices();
+    const source = audio.createBufferSource();
+    const gain = audio.createGain();
+    const voice = { source, gain };
+    voices.add(voice);
+    source.onended = () => release(voice);
+    source.buffer = buffer;
+    gain.gain.setValueAtTime(0.7, audio.currentTime);
+    source.connect(gain);
+    gain.connect(audio.destination);
+    source.start(audio.currentTime);
+    source.stop(audio.currentTime + buffer.duration + 0.01);
+  } catch {
+    stopVoices();
+  }
 }
 
 export function playAnswerSound(correct: boolean): void {

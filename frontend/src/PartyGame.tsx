@@ -315,10 +315,12 @@ export default function PartyGame({
       ? 0
       : Math.max(0, Math.ceil((room.deadline - (now + clockOffset)) / 1_000));
   const musicScene: MusicScene =
-    phase === "round" || phase === "reveal" ? "gameplay" : "lobby";
-  const musicUrgent = Boolean(
-    phase === "round" && !me?.answered && secondsLeft > 0 && secondsLeft <= 5,
-  );
+    phase === "round"
+      ? "gameplay"
+      : phase === "reveal" || phase === "finished"
+        ? "silent"
+        : "lobby";
+  const musicUrgent = Boolean(phase === "round" && secondsLeft <= 5);
   useCountdownTicks({
     roundId:
       phase === "round" && room?.round ? `${room.code}:${room.round.id}` : null,

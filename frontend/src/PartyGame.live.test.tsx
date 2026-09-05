@@ -189,7 +189,7 @@ describe("live party snapshots", () => {
     },
   );
 
-  it("changes music with the room phase and adds urgency only while an unanswered round has time left", async () => {
+  it("keeps final seconds muted after answering, silences leaderboards and restores lobby music for a rematch", async () => {
     const onMusicStateChange = vi.fn();
     render(
       <PartyGame onBack={vi.fn()} onMusicStateChange={onMusicStateChange} />,
@@ -202,6 +202,7 @@ describe("live party snapshots", () => {
 
     await act(async () => vi.advanceTimersByTimeAsync(15_000));
     expect(onMusicStateChange).toHaveBeenLastCalledWith("gameplay", true);
+    await act(async () => vi.advanceTimersByTimeAsync(1_000));
     act(() =>
       socket.message({
         type: "room",
@@ -217,21 +218,36 @@ describe("live party snapshots", () => {
         },
       }),
     );
-    expect(onMusicStateChange).toHaveBeenLastCalledWith("gameplay", false);
+    expect(onMusicStateChange).toHaveBeenLastCalledWith("gameplay", true);
 
     act(() => socket.message({ type: "room", room: reveal() }));
-    expect(onMusicStateChange).toHaveBeenLastCalledWith("gameplay", false);
+    expect(onMusicStateChange).toHaveBeenLastCalledWith("silent", false);
     act(() =>
       socket.message({
         type: "room",
         room: { ...reveal(), revision: 5, phase: "finished" },
       }),
     );
+    expect(onMusicStateChange).toHaveBeenLastCalledWith("silent", false);
+    act(() =>
+      socket.message({
+        type: "room",
+        room: {
+          ...room,
+          revision: 6,
+          phase: "waiting",
+          round: null,
+          deadline: null,
+          roundNumber: 0,
+          serverNow: Date.now(),
+        },
+      }),
+    );
     expect(onMusicStateChange).toHaveBeenLastCalledWith("lobby", false);
     expect(FakeRoomSocket.instances).toHaveLength(1);
   });
 
-  it("ends music urgency at the deadline even while waiting for the shared reveal", async () => {
+  it("keeps music muted at zero while waiting for the shared reveal", async () => {
     const onMusicStateChange = vi.fn();
     render(
       <PartyGame onBack={vi.fn()} onMusicStateChange={onMusicStateChange} />,
@@ -241,7 +257,9 @@ describe("live party snapshots", () => {
     await act(async () => vi.advanceTimersByTimeAsync(15_000));
     expect(onMusicStateChange).toHaveBeenLastCalledWith("gameplay", true);
     await act(async () => vi.advanceTimersByTimeAsync(5_000));
-    expect(onMusicStateChange).toHaveBeenLastCalledWith("gameplay", false);
+    expect(onMusicStateChange).toHaveBeenLastCalledWith("gameplay", true);
+    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    expect(onMusicStateChange).toHaveBeenLastCalledWith("gameplay", true);
   });
 
   it("reveals an alarm-driven round immediately and celebrates once without polling or reconnecting on preference changes", async () => {

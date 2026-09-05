@@ -17,7 +17,14 @@ const GAMEPLAY_TRACKS = [
 ] as const;
 type GameplayTrack = (typeof GAMEPLAY_TRACKS)[number];
 type Track = "lobby" | GameplayTrack;
-type Voice = { source: AudioBufferSourceNode; gain: GainNode; track: Track };
+type Voice = {
+  source: AudioBufferSourceNode;
+  gain: GainNode;
+  track: Track;
+  startedAt: number;
+  offset: number;
+  duration: number;
+};
 type Download = {
   controller: AbortController;
   promise: Promise<AudioBuffer | null>;
@@ -46,6 +53,7 @@ class MusicPlayer {
   private failed = new Set<Track>();
   private playlist: GameplayTrack[] = [];
   private gameplayTrack: GameplayTrack | null = null;
+  private gameplayOffset = 0;
   private lastPlayed: GameplayTrack | null = null;
   private request = 0;
   private disposed = false;
@@ -74,6 +82,7 @@ class MusicPlayer {
   private getContext(): AudioContext | null {
     try {
       if (this.audio?.state === "closed") {
+        this.rememberPosition();
         this.request += 1;
         this.abortDownloads();
         for (const voice of this.voices.keys()) this.release(voice);
@@ -133,6 +142,7 @@ class MusicPlayer {
     if (!audio || scene === "silent") return;
     if (scene === "gameplay" && !this.gameplayTrack) {
       this.gameplayTrack = this.nextTrack();
+      this.gameplayOffset = 0;
     }
     const track = scene === "lobby" ? "lobby" : this.gameplayTrack;
     if (!track || this.failed.has(track)) return;
@@ -260,12 +270,24 @@ class MusicPlayer {
 
   private start(audio: AudioContext, buffer: AudioBuffer, track: Track): void {
     if (this.current || !this.master) return;
+    const offset = track === "lobby" ? 0 : this.gameplayOffset;
+    const remaining = buffer.duration - offset;
+    if (track !== "lobby" && remaining <= 0) {
+      // The source may finish just before a scene change hides its ended event.
+      this.gameplayTrack = null;
+      this.gameplayOffset = 0;
+      this.playCurrent();
+      return;
+    }
     let voice: Voice | null = null;
     try {
       voice = {
         source: audio.createBufferSource(),
         gain: audio.createGain(),
         track,
+        startedAt: audio.currentTime,
+        offset,
+        duration: buffer.duration,
       };
       this.voices.set(voice, null);
       const current = voice;
@@ -274,19 +296,17 @@ class MusicPlayer {
       current.source.connect(current.gain);
       current.gain.connect(this.master);
       current.gain.gain.setValueAtTime(0, audio.currentTime);
-      current.gain.gain.linearRampToValueAtTime(
-        1,
-        audio.currentTime + FADE_SECONDS,
-      );
+      const fade = Math.min(FADE_SECONDS, remaining / 2);
+      current.gain.gain.linearRampToValueAtTime(1, audio.currentTime + fade);
       if (track !== "lobby") {
         // Play the whole selection, smoothing its ending into the next track.
         current.gain.gain.setValueAtTime(
           1,
-          audio.currentTime + buffer.duration - FADE_SECONDS,
+          audio.currentTime + remaining - fade,
         );
         current.gain.gain.linearRampToValueAtTime(
           0,
-          audio.currentTime + buffer.duration,
+          audio.currentTime + remaining,
         );
       }
       current.source.onended = () => {
@@ -298,10 +318,11 @@ class MusicPlayer {
         this.release(current);
         if (advance) {
           this.gameplayTrack = null;
+          this.gameplayOffset = 0;
           this.playCurrent();
         }
       };
-      current.source.start();
+      current.source.start(0, offset);
       this.current = current;
       this.updateVolume();
       if (track !== "lobby") {
@@ -319,7 +340,7 @@ class MusicPlayer {
     const level = Number.isFinite(volume)
       ? Math.max(0, Math.min(1, volume))
       : 0;
-    const mix = scene === "gameplay" ? 0.75 * (urgent ? 1.12 : 1) : 1;
+    const mix = scene === "gameplay" ? (urgent ? 0 : 0.75) : 1;
     const target = this.canPlay ? level * mix * (this.duckTimer ? 0.25 : 1) : 0;
     try {
       // setTargetAtTime follows the current level smoothly, even during a fade.
@@ -360,6 +381,7 @@ class MusicPlayer {
   }
 
   private cancelPlayback(fade: boolean): void {
+    this.rememberPosition();
     this.request += 1;
     this.abortDownloads();
     // A final reveal can change scenes while its celebration is still playing.
@@ -388,6 +410,15 @@ class MusicPlayer {
     if (!this.canPlay && this.audio?.state === "running") {
       void this.audio.suspend().catch(() => {});
     }
+  }
+
+  private rememberPosition(): void {
+    const voice = this.current;
+    if (!voice || voice.track === "lobby" || !this.audio) return;
+    this.gameplayOffset = Math.min(
+      voice.duration,
+      voice.offset + Math.max(0, this.audio.currentTime - voice.startedAt),
+    );
   }
 
   private abortDownloads(): void {

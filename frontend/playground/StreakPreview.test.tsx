@@ -33,59 +33,163 @@ afterEach(() => {
 });
 
 describe("local streak playground", () => {
-  it("auditions five countdown cues without enabling music and stops at zero", async () => {
+  it("waits for delayed audio readiness before starting the first countdown second", async () => {
     vi.useFakeTimers();
-    render(<StreakPreview />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Try 5-second countdown" }),
+    let ready!: () => void;
+    vi.mocked(prepareAudio).mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        ready = resolve;
+      }),
     );
-    expect(prepareAudio).toHaveBeenCalledOnce();
+    render(<StreakPreview />);
+    fireEvent.click(screen.getByRole("button", { name: "Final seconds" }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(screen.queryByLabelText("Countdown seconds")).toBeNull();
+    expect(playCountdownTick).not.toHaveBeenCalled();
+    await act(async () => {
+      ready();
+    });
     expect(screen.getByLabelText("Countdown seconds").textContent).toBe("5");
     expect(playCountdownTick).toHaveBeenCalledExactlyOnceWith(5);
-    for (let remaining = 4; remaining >= 0; remaining -= 1) {
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(1_000);
-      });
-      expect(screen.getByLabelText("Countdown seconds").textContent).toBe(
-        String(remaining),
-      );
-    }
-    expect(vi.mocked(playCountdownTick).mock.calls).toEqual([
-      [5],
-      [4],
-      [3],
-      [2],
-      [1],
-    ]);
     expect(useMusic).toHaveBeenLastCalledWith({
-      enabled: false,
+      enabled: true,
+      volume: 0.35,
+      scene: "gameplay",
+      urgent: true,
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(vi.mocked(playCountdownTick).mock.calls).toEqual([[5], [4]]);
+  });
+
+  it("cancels an audio unlock in progress when the preview scene changes", async () => {
+    vi.useFakeTimers();
+    let ready!: () => void;
+    vi.mocked(prepareAudio).mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        ready = resolve;
+      }),
+    );
+    render(<StreakPreview />);
+    fireEvent.click(screen.getByRole("button", { name: "Final seconds" }));
+    fireEvent.click(screen.getByRole("button", { name: "Gameplay" }));
+    await act(async () => {
+      ready();
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(screen.queryByLabelText("Countdown seconds")).toBeNull();
+    expect(playCountdownTick).not.toHaveBeenCalled();
+    expect(useMusic).toHaveBeenLastCalledWith({
+      enabled: true,
       volume: 0.35,
       scene: "gameplay",
       urgent: false,
     });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2_000);
-    });
-    expect(playCountdownTick).toHaveBeenCalledTimes(5);
   });
 
-  it("respects SFX mute and cancels the audition when a guess is made", async () => {
+  it("starts once after the readiness timeout and ignores a later unlock result", async () => {
     vi.useFakeTimers();
+    let ready!: () => void;
+    vi.mocked(prepareAudio).mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        ready = resolve;
+      }),
+    );
     render(<StreakPreview />);
     fireEvent.click(
       screen.getByRole("button", { name: "Try 5-second countdown" }),
     );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    expect(screen.getByLabelText("Countdown seconds").textContent).toBe("5");
+    expect(playCountdownTick).toHaveBeenCalledExactlyOnceWith(5);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+      ready();
+    });
+    expect(playCountdownTick).toHaveBeenCalledOnce();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(screen.getByLabelText("Countdown seconds").textContent).toBe("4");
+    expect(vi.mocked(playCountdownTick).mock.calls).toEqual([[5], [4]]);
+  });
+
+  it.each(["Final seconds", "Try 5-second countdown"])(
+    "auditions five countdown cues with music off through %s and stops at zero",
+    async (button) => {
+      vi.useFakeTimers();
+      render(<StreakPreview />);
+      fireEvent.click(screen.getByRole("button", { name: "Music" }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: button }));
+      });
+      expect(prepareAudio).toHaveBeenCalledOnce();
+      expect(screen.getByLabelText("Countdown seconds").textContent).toBe("5");
+      expect(playCountdownTick).toHaveBeenCalledExactlyOnceWith(5);
+      for (let remaining = 4; remaining >= 0; remaining -= 1) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1_000);
+        });
+        expect(screen.getByLabelText("Countdown seconds").textContent).toBe(
+          String(remaining),
+        );
+      }
+      expect(vi.mocked(playCountdownTick).mock.calls).toEqual([
+        [5],
+        [4],
+        [3],
+        [2],
+        [1],
+      ]);
+      expect(music.duck).not.toHaveBeenCalled();
+      expect(useMusic).toHaveBeenLastCalledWith({
+        enabled: false,
+        volume: 0.35,
+        scene: "silent",
+        urgent: false,
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(playCountdownTick).toHaveBeenCalledTimes(5);
+    },
+  );
+
+  it("respects SFX mute and cancels the audition when a guess is made", async () => {
+    vi.useFakeTimers();
+    render(<StreakPreview />);
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Try 5-second countdown" }),
+      );
+    });
     fireEvent.click(screen.getByRole("button", { name: "Sound effects" }));
+    expect(
+      screen.getByText("SFX is off. Turn it on to hear the countdown."),
+    ).toBeTruthy();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000);
     });
     expect(playCountdownTick).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("button", { name: "Correct guess +1" }));
-    expect(screen.queryByLabelText("Countdown seconds")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Sound effects" }));
+    expect(music.duck).not.toHaveBeenCalled();
     fireEvent.click(
       screen.getByRole("button", { name: "Try 5-second countdown" }),
     );
+    expect(screen.getByLabelText("Countdown seconds").textContent).toBe("5");
+    expect(playCountdownTick).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Correct guess +1" }));
+    expect(screen.queryByLabelText("Countdown seconds")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Sound effects" }));
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Try 5-second countdown" }),
+      );
+    });
     expect(playCountdownTick).toHaveBeenLastCalledWith(5);
     fireEvent.click(screen.getByRole("button", { name: "Correct guess +1" }));
     await act(async () => {
@@ -94,10 +198,10 @@ describe("local streak playground", () => {
     expect(playCountdownTick).toHaveBeenCalledTimes(2);
   });
 
-  it("starts music off and auditions lobby, gameplay and final seconds locally", () => {
+  it("starts music on and auditions lobby, gameplay and final seconds locally", async () => {
     render(<StreakPreview />);
     expect(useMusic).toHaveBeenLastCalledWith({
-      enabled: false,
+      enabled: true,
       volume: 0.35,
       scene: "lobby",
       urgent: false,
@@ -107,8 +211,9 @@ describe("local streak playground", () => {
       screen
         .getByRole("button", { name: "Music" })
         .getAttribute("aria-pressed"),
-    ).toBe("false");
+    ).toBe("true");
 
+    fireEvent.click(screen.getByRole("button", { name: "Music" }));
     fireEvent.click(screen.getByRole("button", { name: "Music" }));
     expect(music.prepare).toHaveBeenCalledOnce();
     expect(useMusic).toHaveBeenLastCalledWith({
@@ -128,7 +233,9 @@ describe("local streak playground", () => {
       scene: "gameplay",
       urgent: false,
     });
-    fireEvent.click(screen.getByRole("button", { name: "Final seconds" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Final seconds" }));
+    });
     expect(useMusic).toHaveBeenLastCalledWith({
       enabled: true,
       volume: 0.6,
@@ -159,7 +266,6 @@ describe("local streak playground", () => {
 
   it("ducks music only when a milestone jingle is audible", () => {
     render(<StreakPreview />);
-    fireEvent.click(screen.getByRole("button", { name: "Music" }));
     fireEvent.click(screen.getByRole("button", { name: "5 · On fire" }));
     expect(music.duck).toHaveBeenCalledOnce();
     expect(playStreakSound).toHaveBeenCalledExactlyOnceWith(5);

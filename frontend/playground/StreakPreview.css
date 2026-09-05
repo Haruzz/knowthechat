@@ -86,6 +86,20 @@
   color: #fff;
   font-weight: 800;
 }
+.preview-countdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #c5b5cb;
+  font-size: 12px;
+}
+.preview-countdown output {
+  min-width: 1.2em;
+  color: #ffcc93;
+  font-size: 28px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
 .preview-note {
   max-width: 520px;
   margin: 18px auto 0;

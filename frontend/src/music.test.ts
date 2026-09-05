@@ -286,18 +286,22 @@ describe("background music", () => {
     expect(audio.sources).toHaveLength(1);
   });
 
-  it("ducks under celebrations and adds modest urgency without restarting the loop", async () => {
+  it("ducks celebrations and fully mutes final seconds without restarting the track", async () => {
     const { result, rerender } = renderHook(useMusic, {
       initialProps: options("gameplay"),
     });
     await flush();
     expect(mix()).toBeCloseTo(0.3);
-    rerender({ ...options("gameplay"), urgent: true });
-    expect(mix()).toBeCloseTo(0.336);
     act(() => result.current.duck());
-    expect(mix()).toBeCloseTo(0.084);
+    expect(mix()).toBeCloseTo(0.075);
+    rerender({ ...options("gameplay"), urgent: true });
+    expect(mix()).toBe(0);
+    rerender({ ...options("gameplay"), urgent: true, volume: 1 });
+    expect(mix()).toBe(0);
     act(() => vi.advanceTimersByTime(1700));
-    expect(mix()).toBeCloseTo(0.336);
+    expect(mix()).toBe(0);
+    rerender(options("gameplay"));
+    expect(mix()).toBeCloseTo(0.3);
     rerender({ ...options("gameplay"), volume: 0 });
     expect(mix()).toBe(0);
     expect(currentAudio().sources).toHaveLength(1);
@@ -415,6 +419,83 @@ describe("background music", () => {
       expect(source.buffer).toBeNull();
       expect(source.disconnect).toHaveBeenCalledOnce();
     }
+  });
+
+  it("resumes the partial gameplay track after a silent leaderboard and advances when it finishes", async () => {
+    const { rerender } = renderHook(useMusic, {
+      initialProps: options("gameplay"),
+    });
+    await flush();
+    const audio = currentAudio();
+    expect(currentTrack()).toBe(gameplayUrls[0]);
+    audio.currentTime = 12;
+    rerender(options("silent"));
+    await flush();
+    act(() => vi.advanceTimersByTime(5000));
+    rerender(options("gameplay"));
+    await flush();
+    expect(currentTrack()).toBe(gameplayUrls[0]);
+    expect(audio.sources.at(-1)?.start).toHaveBeenCalledWith(0, 7);
+    expect(
+      audio.gains.at(-1)?.gain.linearRampToValueAtTime,
+    ).toHaveBeenLastCalledWith(0, 35);
+    audio.currentTime = 20;
+    rerender(options("silent"));
+    await flush();
+    rerender(options("gameplay"));
+    await flush();
+    expect(audio.sources.at(-1)?.start).toHaveBeenCalledWith(0, 15);
+    await finishTrack();
+    expect(currentTrack()).toBe(gameplayUrls[1]);
+    expect(audio.sources.at(-1)?.start).toHaveBeenCalledWith(0, 0);
+    expect(
+      fetchMock.mock.calls.filter(([url]) => url === gameplayUrls[0]),
+    ).toHaveLength(1);
+  });
+
+  it.each(["lobby", "disabled", "hidden"] as const)(
+    "preserves the gameplay cursor while %s",
+    async (interruption) => {
+      const { rerender } = renderHook(useMusic, {
+        initialProps: options("gameplay"),
+      });
+      await flush();
+      const audio = currentAudio();
+      audio.currentTime = 14;
+      if (interruption === "hidden") {
+        vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+        act(() => document.dispatchEvent(new Event("visibilitychange")));
+      } else
+        rerender(
+          options(
+            interruption === "lobby" ? "lobby" : "gameplay",
+            interruption !== "disabled",
+          ),
+        );
+      await flush();
+      if (interruption === "lobby") audio.currentTime = 24;
+      if (interruption === "hidden") {
+        vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+        act(() => document.dispatchEvent(new Event("visibilitychange")));
+      } else rerender(options("gameplay"));
+      await flush();
+      expect(currentTrack()).toBe(gameplayUrls[0]);
+      expect(audio.sources.at(-1)?.start).toHaveBeenCalledWith(0, 9);
+    },
+  );
+
+  it("advances if the song finished exactly as the leaderboard silenced it", async () => {
+    const { rerender } = renderHook(useMusic, {
+      initialProps: options("gameplay"),
+    });
+    await flush();
+    currentAudio().currentTime = 35;
+    rerender(options("silent"));
+    await flush();
+    rerender(options("gameplay"));
+    await flush();
+    expect(currentTrack()).toBe(gameplayUrls[1]);
+    expect(currentAudio().sources.at(-1)?.start).toHaveBeenCalledWith(0, 0);
   });
 
   it("keeps the lobby cached while evicting completed gameplay tracks", async () => {

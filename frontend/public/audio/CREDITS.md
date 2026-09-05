@@ -1,5 +1,7 @@
 # Music credits
 
+The music credits are followed by the separate countdown sound-effect credits.
+
 Music by **Abstraction**, published by Tallbeard Studios in the
 [FREE Music Loop Bundle](https://tallbeard.itch.io/music-loop-bundle).
 Artist website: <https://abstractionmusic.com/>.
@@ -82,3 +84,39 @@ so building or running the game does not require this script or these dependenci
 | `gameplay-sanctuary.mp3`             | `99c45bb1614b825397fb3dba195319950890cd8abb5d9a4c6f340ed05f5cb7d1` |
 | `gameplay-sketchbook-2025-12-11.mp3` | `a5af1203178c097b79c066944453a39c29434087e95f6bad8acf30aed73e7bb0` |
 | `gameplay-sketchbook-2024-10-14.mp3` | `c7b21318968a2ba6ff86a61c3f194395ada6a3daa3f8b8e3bb04251ef84a5ea9` |
+
+## Countdown clock cues
+
+`countdown-tick.wav` and `countdown-tock.wav` are adapted from **Clock (sound
+number 0007)** by **Joseph Sardin**, published by BigSoundBank / LaSonotheque.
+The publisher identifies the source as a studio recording of a mechanical clock
+and explicitly releases it under **CC0**, permitting modification, redistribution
+and commercial use. Source and license were checked on September 6, 2026.
+
+- [Clock source page and CC0 declaration](https://bigsoundbank.com/clock-s0007.html)
+- [Original WAV download](https://bigsoundbank.com/UPLOAD/bwf-en/0007.wav)
+- [Publisher's license information](https://bigsoundbank.com/licenses.html)
+- [Full CC0 legal text](LICENSE-CC0.txt)
+
+These are two consecutive recorded mechanical strokes, not synthesized notes.
+The tick uses source seconds **2.20–2.44**; the tock uses **3.20–3.44**. Each
+excerpt has DC offset removed, a 2 ms opening fade and a 12 ms closing fade,
+then peak normalization to **-2 dBFS**. There is no pitch or speed change.
+Both files contain **10,584 mono frames at 44,100 Hz**, lasting **0.24 seconds**,
+in PCM16 WAV format. Each file is **21,212 bytes**.
+
+To reproduce only these cues without modifying the music files:
+
+```bash
+uv run scripts/prepare-countdown.py
+```
+
+The preparation script checks the original download's hash before processing
+and uses the same isolated, pinned audio dependencies as the music script.
+The sound-effect files are served locally with the frontend.
+
+| File                 | SHA-256                                                            |
+| -------------------- | ------------------------------------------------------------------ |
+| Original clock WAV   | `f7bffc8e48d7e4fb93e6227e227921d98ab2ecfece733dbd77270bc5fc8e6779` |
+| `countdown-tick.wav` | `ca62b0ab4d1bf38a41d7c0d2a4b84f0aa0f8548d808b185ff1c932770455fe57` |
+| `countdown-tock.wav` | `008f51b0be7b482f7f0bdd8f2a206fec166a00d1b96e9d03512a5057d59b3a42` |

@@ -19,3 +19,7 @@ under CC0 1.0 Universal. The original track titles, source links, file hashes,
 and conversion details are listed in [the audio credits](frontend/public/audio/CREDITS.md).
 The [complete CC0 license](frontend/public/audio/LICENSE-CC0.txt) is included
 alongside the tracks.
+
+The countdown tick and tock are edited excerpts of Joseph Sardin's “Clock”
+recording from BigSoundBank, released under CC0. Source links and preparation
+details are included in the same [audio credits](frontend/public/audio/CREDITS.md).

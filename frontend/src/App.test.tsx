@@ -104,32 +104,41 @@ describe("Who Said It frontend", () => {
     fireEvent.click(screen.getByRole("button", { name: /play with friends/i }));
     fireEvent.click(screen.getByRole("button", { name: "Countdown cue" }));
     expect(playCountdownTick).toHaveBeenCalledExactlyOnceWith(5);
+    expect(musicPlayback.duck).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Music" }));
     fireEvent.click(screen.getByRole("button", { name: "Sound effects" }));
     fireEvent.click(screen.getByRole("button", { name: "Countdown cue" }));
     expect(playCountdownTick).toHaveBeenCalledOnce();
+    expect(musicPlayback.duck).not.toHaveBeenCalled();
     expect(stopAudio).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Sound effects" }));
     fireEvent.click(screen.getByRole("button", { name: "Countdown cue" }));
     expect(playCountdownTick).toHaveBeenCalledTimes(2);
+    expect(musicPlayback.duck).not.toHaveBeenCalled();
   });
 
-  it("starts music off and remembers music and volume independently from sound effects across modes", () => {
+  it("starts music on and remembers music and volume independently from sound effects across modes", () => {
     render(<App />);
     expect(
       screen
         .getByRole("button", { name: "Music" })
         .getAttribute("aria-pressed"),
-    ).toBe("false");
-    expect(screen.queryByRole("slider", { name: "Music volume" })).toBeNull();
+    ).toBe("true");
+    expect(
+      (screen.getByRole("slider", { name: "Music volume" }) as HTMLInputElement)
+        .value,
+    ).toBe("35");
     expect(useMusic).toHaveBeenLastCalledWith({
-      enabled: false,
+      enabled: true,
       volume: 0.35,
       scene: "lobby",
       urgent: false,
     });
     expect(musicPlayback.prepare).not.toHaveBeenCalled();
 
+    fireEvent.click(screen.getByRole("button", { name: "Music" }));
+    expect(screen.queryByRole("slider", { name: "Music volume" })).toBeNull();
+    expect(musicPlayback.prepare).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Music" }));
     expect(musicPlayback.prepare).toHaveBeenCalledOnce();
     fireEvent.change(screen.getByRole("slider", { name: "Music volume" }), {
@@ -179,13 +188,13 @@ describe("Who Said It frontend", () => {
   });
 
   it.each(["", "loud", "-1", "2", "Infinity"])(
-    "ignores invalid saved music volume %j",
+    "defaults music on and ignores invalid saved music volume %j",
     (value) => {
       localStorage.setItem("knowthechat-music-volume", value);
       localStorage.setItem("knowthechat-music", "unexpected");
       render(<App />);
       expect(useMusic).toHaveBeenLastCalledWith({
-        enabled: false,
+        enabled: true,
         volume: 0.35,
         scene: "lobby",
         urgent: false,
@@ -206,7 +215,7 @@ describe("Who Said It frontend", () => {
     expect(musicPlayback.prepare).not.toHaveBeenCalled();
   });
 
-  it("uses gameplay music during solo rounds and keeps the controls available on the results screen", async () => {
+  it("silences solo results and restores lobby music after returning to setup", async () => {
     localStorage.setItem("knowthechat-music", "true");
     await startGame(3);
     expect(musicPlayback.prepare).toHaveBeenCalledOnce();
@@ -226,12 +235,22 @@ describe("Who Said It frontend", () => {
     expect(useMusic).toHaveBeenLastCalledWith({
       enabled: true,
       volume: 0.35,
-      scene: "lobby",
+      scene: "silent",
       urgent: false,
     });
     fireEvent.click(screen.getByRole("button", { name: "Music" }));
     expect(useMusic).toHaveBeenLastCalledWith({
       enabled: false,
+      volume: 0.35,
+      scene: "silent",
+      urgent: false,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Music" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Try another channel" }),
+    );
+    expect(useMusic).toHaveBeenLastCalledWith({
+      enabled: true,
       volume: 0.35,
       scene: "lobby",
       urgent: false,

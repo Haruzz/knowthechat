@@ -320,7 +320,7 @@ export default function App() {
     readPreference("effects"),
   );
   const [musicEnabled, setMusicEnabled] = useState(() =>
-    readPreference("music", false),
+    readPreference("music"),
   );
   const [musicVolume, setMusicVolume] = useState(readMusicVolume);
   const [partyMusic, setPartyMusic] = useState<{
@@ -334,9 +334,13 @@ export default function App() {
     volume: musicVolume,
     scene: playWithFriends
       ? partyMusic.scene
-      : current && !loading
-        ? "gameplay"
-        : "lobby",
+      : loading
+        ? "lobby"
+        : current
+          ? "gameplay"
+          : rounds.length > 0
+            ? "silent"
+            : "lobby",
     urgent: playWithFriends && partyMusic.urgent,
   });
   const updatePartyMusic = useCallback((scene: MusicScene, urgent: boolean) => {
