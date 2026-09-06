@@ -1,6 +1,10 @@
 .party-shell {
   padding: 36px 24px;
 }
+.simple-shell.party-shell,
+.game-shell.party-game {
+  padding-bottom: 96px;
+}
 .party-setup {
   max-width: 650px;
 }
@@ -140,8 +144,10 @@
   gap: 16px;
   min-width: 0;
 }
-.party-brand-lockup > img {
+.party-brand-lockup > .brand {
   flex: 0 0 auto;
+  padding: 0;
+  border-radius: 8px;
 }
 .party-room-heading {
   min-width: 0;
