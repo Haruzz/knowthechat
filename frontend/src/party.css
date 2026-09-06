@@ -318,6 +318,21 @@
 .party-player-name {
   min-width: 0;
 }
+.party-player-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 8px;
+}
+.party-host-badge {
+  border: 1px solid #655378;
+  border-radius: 5px;
+  padding: 1px 5px;
+  color: #c9b4df;
+  font-size: 9px;
+  line-height: 1.5;
+  font-weight: 600;
+}
 .party-player-name strong {
   display: block;
   font-size: 13px;
@@ -329,6 +344,12 @@
   color: #b1a2c1;
   margin-top: 5px;
   overflow-wrap: anywhere;
+}
+.party-player-name .party-guess-correct {
+  color: #89e7b6;
+}
+.party-player-name .party-guess-incorrect {
+  color: #dda4ae;
 }
 .party-player-score {
   text-align: right;

@@ -219,17 +219,49 @@ function Scoreboard({ room }: { room: Room }) {
               {player.name.slice(0, 2).toUpperCase()}
             </span>
             <span className="party-player-name">
-              <strong>
-                {player.name}
-                {player.id === room.you ? " (you)" : ""}
-              </strong>
-              <small>
-                {player.id === room.hostId ? "Host" : "Player"}
-                {room.phase === "round" &&
-                  (player.answered ? " · Locked in" : " · Thinking…")}
-                {revealed &&
-                  (player.choice ? ` · ${player.choice}` : " · No answer")}
-              </small>
+              <span className="party-player-title">
+                <strong>
+                  {player.name}
+                  {player.id === room.you ? " (you)" : ""}
+                </strong>
+                {player.id === room.hostId && (
+                  <span className="party-host-badge">Host</span>
+                )}
+              </span>
+              {room.phase === "round" && (
+                <small>{player.answered ? "Locked in" : "Thinking…"}</small>
+              )}
+              {revealed && (
+                <small
+                  className={
+                    player.choice && room.round?.author
+                      ? player.choice === room.round.author
+                        ? "party-guess-correct"
+                        : "party-guess-incorrect"
+                      : undefined
+                  }
+                >
+                  {player.choice ? (
+                    <>
+                      {room.round?.author && (
+                        <span
+                          role="img"
+                          aria-label={
+                            player.choice === room.round.author
+                              ? "Correct guess"
+                              : "Incorrect guess"
+                          }
+                        >
+                          {player.choice === room.round.author ? "✓" : "✕"}
+                        </span>
+                      )}{" "}
+                      Guessed <b>{player.choice}</b>
+                    </>
+                  ) : (
+                    "No guess"
+                  )}
+                </small>
+              )}
             </span>
             <span className="party-player-score">
               {room.phase !== "waiting" && (
