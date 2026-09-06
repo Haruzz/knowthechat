@@ -107,6 +107,62 @@ afterEach(() => {
 });
 
 describe("live party snapshots", () => {
+  it.each(["reveal", "finished"])(
+    "separates host badges from correct, incorrect, and missing guesses in %s",
+    (phase) => {
+      const room = reveal();
+      room.players = [
+        { ...room.players[0], roundPoints: 0 },
+        { ...room.players[1], answered: true, choice: "Bob" },
+        { ...room.players[1], id: "late", name: "Late player" },
+      ];
+      render(<PartyGame onBack={vi.fn()} />);
+      act(() =>
+        FakeRoomSocket.instances[0].message({
+          type: "room",
+          room: { ...room, phase },
+        }),
+      );
+      const board = screen.getByRole("region", { name: "Scoreboard" });
+      const [host, wrong, missed] = within(board).getAllByRole("listitem");
+      expect(within(host).getByText("Host").parentElement).toBe(
+        within(host).getByText("Harun (you)").parentElement,
+      );
+      expect(
+        within(host).getByRole("img", { name: "Correct guess" }),
+      ).toBeTruthy();
+      expect(
+        within(host).getByText("Alice").closest("small")?.textContent,
+      ).toContain("Guessed Alice");
+      expect(
+        within(wrong).getByRole("img", { name: "Incorrect guess" }),
+      ).toBeTruthy();
+      expect(
+        within(wrong).getByText("Bob").closest("small")?.textContent,
+      ).toContain("Guessed Bob");
+      expect(within(wrong).queryByText("Host")).toBeNull();
+      expect(within(board).queryByText("Player", { exact: true })).toBeNull();
+      expect(within(missed).getByText("No guess")).toBeTruthy();
+      expect(within(missed).queryByRole("img", { name: /guess/ })).toBeNull();
+      expect(within(host).getByText("+0 this round")).toBeTruthy();
+    },
+  );
+
+  it("shows the host badge in the lobby without showing any guesses", () => {
+    const room = activeRoom();
+    render(<PartyGame onBack={vi.fn()} />);
+    act(() =>
+      FakeRoomSocket.instances[0].message({
+        type: "room",
+        room: { ...room, phase: "waiting", round: null, deadline: null },
+      }),
+    );
+    const board = screen.getByRole("region", { name: "Lobby players" });
+    expect(within(board).getByText("Host")).toBeTruthy();
+    expect(within(board).queryByText(/Guessed|No guess/)).toBeNull();
+    expect(within(board).getAllByText("Ready")).toHaveLength(2);
+  });
+
   it("applauds only the last round's first reveal while preserving the last answer sound", () => {
     const onGameFinished = vi.fn();
     const onRoundRevealed = vi.fn();
