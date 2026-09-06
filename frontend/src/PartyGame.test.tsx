@@ -92,6 +92,80 @@ afterEach(() => {
 });
 
 describe("private party game", () => {
+  it("keeps the creator credit and supporting links on party setup", () => {
+    render(<PartyGame onBack={vi.fn()} />);
+    const links = screen.getByRole("navigation", { name: "Project links" });
+    expect(
+      within(links).getByRole("link", { name: "Haruzzz on Twitch" })
+        .textContent,
+    ).toContain("Made by Haruzzz");
+    expect(
+      within(links).getByRole("link", {
+        name: "Know The Chat source code on GitHub",
+      }),
+    ).toBeTruthy();
+    expect(within(links).getByRole("link", { name: "Privacy" })).toBeTruthy();
+    expect(
+      within(links).getByRole("link", { name: "Audio credits" }),
+    ).toBeTruthy();
+  });
+
+  it.each(["host", "friend"])(
+    "lets the %s use the logo to leave final standings and return to setup",
+    async (you) => {
+      remember();
+      const onBack = vi.fn();
+      const onGameRestarted = vi.fn();
+      let resolveLeave!: (value: Response) => void;
+      const fetchMock = vi
+        .spyOn(globalThis, "fetch")
+        .mockImplementation(async (input) => {
+          if (String(input).endsWith("/leave"))
+            return new Promise<Response>((resolve) => {
+              resolveLeave = resolve;
+            });
+          return response({ ...waitingRoom(), phase: "finished", you });
+        });
+      render(<PartyGame onBack={onBack} onGameRestarted={onGameRestarted} />);
+      const logo = await screen.findByRole("button", { name: "Back to setup" });
+      expect(
+        within(logo).getByRole("img", { name: "Know The Chat" }),
+      ).toBeTruthy();
+      expect(
+        screen.getByRole("link", { name: "Haruzzz on Twitch" }),
+      ).toBeTruthy();
+      expect(
+        screen.getAllByRole("link", { name: "Audio credits" }),
+      ).toHaveLength(1);
+      onGameRestarted.mockClear();
+      fireEvent.click(logo);
+      expect(onGameRestarted).toHaveBeenCalledOnce();
+      expect(logo).toHaveProperty("disabled", true);
+      expect(screen.getByRole("button", { name: "Leaving…" })).toHaveProperty(
+        "disabled",
+        true,
+      );
+      fireEvent.click(logo);
+      expect(
+        fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/leave")),
+      ).toHaveLength(1);
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/rooms/ABC234/leave",
+        expect.objectContaining({
+          method: "POST",
+          headers: expect.objectContaining({
+            Authorization: "Bearer test-token",
+          }),
+        }),
+      );
+      expect(onBack).not.toHaveBeenCalled();
+      await act(async () => resolveLeave(response({ ok: true })));
+      expect(onBack).toHaveBeenCalledOnce();
+      expect(sessionStorage.getItem(SESSION_KEY)).toBeNull();
+      expect(window.location.search).toBe("");
+    },
+  );
+
   it.each([200, 503])(
     "keeps final standings while a slow fresh-chat rematch returns %s",
     async (status) => {

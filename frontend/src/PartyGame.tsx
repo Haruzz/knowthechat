@@ -9,6 +9,7 @@ import {
 
 import StreakEffects from "./StreakEffects";
 import GameChannel from "./GameChannel";
+import ProjectLinks from "./ProjectLinks";
 import type { MusicScene } from "./music";
 import { useCountdownTicks } from "./useCountdownTicks";
 import { useStreamerProfile } from "./useStreamerProfile";
@@ -986,6 +987,7 @@ export default function PartyGame({
             Everyone gets the same clues. Answers stay hidden until the reveal.
           </p>
         </section>
+        <ProjectLinks />
       </main>
     );
 
@@ -1005,11 +1007,20 @@ export default function PartyGame({
     >
       <header className="party-header">
         <div className="party-brand-lockup">
-          <img
-            className="brand-logo mini-logo"
-            src="/logo.png"
-            alt="Know The Chat"
-          />
+          <button
+            type="button"
+            className="brand mini"
+            aria-label="Back to setup"
+            title="Leave lobby and return to setup"
+            disabled={Boolean(busy)}
+            onClick={() => void act("leave")}
+          >
+            <img
+              className="brand-logo mini-logo"
+              src="/logo.png"
+              alt="Know The Chat"
+            />
+          </button>
           <div className="party-room-heading">
             <p className="eyebrow">PRIVATE PARTY</p>
             <strong>Play with friends</strong>
@@ -1293,16 +1304,9 @@ export default function PartyGame({
         )}
       </div>
       <footer className="party-footer">
-        1,000 for accuracy. Up to 500 for speed. Bragging rights forever.{" "}
-        <a
-          className="underline"
-          href="/audio-credits"
-          target="_blank"
-          rel="noreferrer"
-        >
-          Audio credits
-        </a>
+        1,000 for accuracy. Up to 500 for speed. Bragging rights forever.
       </footer>
+      <ProjectLinks />
     </main>
   );
 }
