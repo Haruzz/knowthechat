@@ -26,19 +26,12 @@ No Twitch login is required. Games use public archives, so available channels an
 
 ```mermaid
 flowchart LR
-    Browser["Browser · React"]
-    subgraph Worker["Cloudflare · one Worker deployment"]
-        Assets["Static assets"]
-        API["Python API"]
-        Rooms["Room + admission Durable Objects<br/>SQLite state"]
-    end
-    Providers["External archive / emote providers"]
-    Browser <-->|HTTP| Assets
-    Browser <-->|HTTP| API
-    Browser <-->|"WebSocket via Worker"| Rooms
-    API <-->|RPC| Rooms
-    API <-->|HTTP| Providers
-    Rooms <-->|"HTTP · rematches"| Providers
+    Browser["Browser<br/>React"]
+    Worker["Cloudflare Worker<br/>Static assets · Python API<br/>Durable Objects · SQLite"]
+    Providers["External providers<br/>Public archives · emotes"]
+
+    Browser <-->|"HTTP / WebSocket"| Worker
+    Worker <-->|HTTP| Providers
 ```
 
 Read the **[architecture guide](docs/architecture.md)** for the system diagram, multiplayer round sequence, room lifecycle, and links to the implementation.
