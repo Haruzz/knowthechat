@@ -33,7 +33,7 @@ Potential next additions:
 - Team mode, where friends agree on one answer before the deadline.
 - Host controls for locking a lobby and removing disruptive players.
 - Larger viewer games with smaller room updates and measured load tests before raising the eight-player cap.
-- Join rate limits and further abuse controls before opening public matchmaking.
+- Additional safeguards for future public matchmaking.
 
 If you want to work on one of these ideas, open an issue first so the intended
 behavior and scope can be agreed before implementation. New suggestions are

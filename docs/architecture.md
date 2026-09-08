@@ -1,159 +1,260 @@
 # Architecture
 
-## What runs where
+## Overview
 
-The browser runs the React application from `frontend/`. React owns setup, loading, game and results state; keyboard controls; sounds; local seen-message history; streamer profile lookup; and rendering Twitch and third-party emotes. TypeScript catches UI contract mistakes before the browser receives the code.
+Know The Chat turns public Twitch chat archives into a three-choice guessing game. In solo mode, the browser builds and runs the game from an API response. In multiplayer, friends share a private room and the server controls the clues, deadlines, locked answers, scores, and reveals.
 
-In multiplayer, React renders a player-specific snapshot from the server. The server owns membership, the host, the deck, deadlines, locked guesses, scoring, and round transitions. The solo game's existing browser-owned state and `POST /api/public-archive` contract remain supported.
+The application has one Cloudflare Worker deployment, `know-the-chat`. Workers Static Assets serves the React frontend; Python handles the same-origin API. One `GameRoom` Durable Object owns each multiplayer room, and one shared `RoomAdmission` Durable Object coordinates room capacity and new-match limits. Both persist in their own SQLite storage.
 
-Cloudflare runs `backend/src/main.py` in a Python Worker. Cloudflare's ASGI adapter invokes the FastAPI application directly inside the Worker isolate; there is no Uvicorn process, socket listener, filesystem-based serving, subprocess, or conventional Linux server. FastAPI validates and routes the public API request, while the existing service asks public archive/emote providers for data, filters and ranks messages, and returns the response model.
+Use the [source map](#source-map) to navigate the implementation, [Development](development.md) for local setup, and [Cloudflare operations](cloudflare.md) for hosting configuration. The Mermaid blocks below are the canonical architecture diagrams; update them alongside architectural changes.
 
-Workers Static Assets stores the Vite output separately from Python modules. Requests for frontend files normally never invoke Python.
+## System architecture
 
-## Multiplayer lobbies
+```mermaid
+flowchart TB
+    Browser["Browser · React + TypeScript"]
 
-One Python `GameRoom` Durable Object coordinates each six-character lobby code through the `GAME_ROOMS` binding. Its SQLite storage contains one bounded JSON snapshot: the selected 5, 10, or 20 rounds, the original archive settings, and hashes of up to 2,000 recently used quote texts. The downloaded archive is not retained. A shared `RoomAdmission` Durable Object through `ROOM_ADMISSION` coordinates room capacity and new-match limits. No D1, KV, second Worker, or additional public API origin is required.
+    subgraph Deployment["Cloudflare · one Worker deployment: know-the-chat"]
+        Assets["Workers Static Assets<br/>Vite build"]
+        API["Python API · FastAPI / ASGI"]
+        Room["GameRoom DO · per room<br/>Server-authoritative rounds + deadlines"]
+        Admission["RoomAdmission DO · shared<br/>Capacity + rate limits"]
+        subgraph Persistence["Persistence · isolated SQLite storage per Durable Object"]
+            RoomDB[("SQLite · private room state")]
+            AdmissionDB[("SQLite · admission ledger")]
+        end
+    end
 
-```text
-POST /api/rooms
-  -> bounded body and Pydantic settings validation
-  -> hash the network key and reserve capacity through ROOM_ADMISSION
-  -> PublicArchiveService fetches and selects real chat on the server
-  -> server generates a private deck, three choices per round, and opaque round IDs
-  -> GAME_ROOMS.getByName(code).initialize(private state)
-       -> activate the reservation with the fixed room expiry
-       -> persist the initial private room state
-  -> host bearer token and waiting-room snapshot
+    Providers["External services<br/>Public archives + emote providers"]
 
-POST /api/rooms/:code/join
-  -> validate display name and room code
-  -> room validates capacity, unique name, and waiting phase
-  -> member bearer token and player-specific snapshot
-
-GET /api/rooms/:code/events (WebSocket upgrade)
-  -> origin and session subprotocol validation before acceptance
-  -> native Worker forwarding to the same GameRoom, outside ASGI
-  -> hibernating socket with player ID attachment and personalized snapshots
-
-GET /api/rooms/:code (fallback); POST /api/rooms/:code/{start,guess,next,leave}
-  -> bearer token and Pydantic command validation
-  -> room loads SQLite state, applies deadlines, authenticates, mutates, and saves
-  -> player-specific snapshot with Cache-Control: no-store
-
-POST /api/rooms/:code/rematch
-  -> authenticate the host and finished phase
-  -> admit the next match and a new archive preparation through ROOM_ADMISSION
-  -> fetch with original archive settings, excluding retained quote hashes
-  -> after successful preparation, save the new deck and reset to the waiting phase
-  -> player-specific snapshot; failed preparation preserves final standings
+    Browser <-->|"HTTP · files"| Assets
+    Browser <-->|"HTTP · /api/*"| API
+    Browser <-->|"WebSocket · via native Worker"| Room
+    API <-->|"Internal RPC"| Room
+    API -->|"RPC · reserve"| Admission
+    Room -->|"RPC · admit / release"| Admission
+    Room <-->|"Persist / restore"| RoomDB
+    Admission <-->|"Persist / prune"| AdmissionDB
+    API <-->|"HTTP · initial load"| Providers
+    Room <-->|"HTTP · rematch"| Providers
 ```
 
-Archive I/O finishes before initializing the room object. Room creation and new matches require admission before they commit. Ordinary gameplay, guesses and heartbeats do not contact the shared admission object. RPC calls use JSON strings across the Python/JavaScript binding boundary. SQLite remains authoritative for room state and the admission ledger, so both recover their decisions after eviction.
+WebSockets push room snapshots and exchange heartbeats; **players submit commands over HTTP**, including guesses. SQLite belongs to the Durable Objects. There is no separate database service, D1, KV, queue, or second API Worker configured. Optional browser profile/image requests are described below and omitted from this game-system diagram for readability.
 
-Each round lasts 15, 20, or 30 seconds. Clients render the countdown from epoch-millisecond `deadline` and `serverNow`, but only the server clock decides whether a guess is on time. A Durable Object alarm closes the round without needing a connected browser; every command also applies a passed deadline before accepting input. A round reveals early once all current players answer. Correct guesses earn 1,000 points plus up to 500 for speed; incorrect or missing guesses earn zero. Scores and streaks are applied together at reveal, preventing another player's changing score from disclosing the answer. Before reveal, a player sees only their own choice and whether other players have answered; no answer, future deck, raw archive quote IDs, or token hashes enter the public snapshot.
+Sources: [production configuration](../backend/wrangler.jsonc), [Worker entrypoint](../backend/src/main.py), [room runtime](../backend/src/runtime/rooms.py), and [admission runtime](../backend/src/runtime/admission.py).
 
-The host starts the match, advances from the reveal screen, and starts a rematch. Advancing after the last reveal shows the final standings. A rematch fetches another archive selection using the same channel, original rolling range or calendar year, and chatter pool. It excludes hashes of up to 2,000 recently used quote texts kept in the room's internal history. Only successful preparation replaces the deck, clears scores and streaks, and returns everyone to the waiting room. If fetching fails or cannot supply enough fresh quotes, the final standings remain; the host can retry or create a lobby with different settings. The browser shows fresh-chat loading and allows 110 seconds for the server's 90-second preparation timeout to return an error. Explicit host departure transfers hosting to the next member. New players may join only while waiting, with a maximum of eight players and unique display names.
+## Request and data flow
 
-Lobbies have a fixed two-hour lifetime. Members inactive for 15 minutes are removed, with host transfer when necessary; HTTP presence updates are throttled, and connected players' presence is recovered from automatic WebSocket ping timestamps before applying timeouts. The earliest round deadline, membership timeout, or room expiry schedules the next alarm. Empty and expired rooms use `deleteAll()` to remove stored data and alarms. Requests for nonexistent codes read schema metadata without creating tables, stored values, or alarms.
+### Frontend and HTTP boundary
 
-The primary transport uses same-origin hibernating WebSockets. The native Worker forwards the upgrade directly to the room so it can use `ctx.acceptWebSocket()`; the ordinary ASGI WebSocket adapter would keep the object awake. Each connection attaches only its player ID. On every committed change and alarm-driven reveal, the object sends a separate redacted snapshot to each current member. A persisted, increasing revision prevents a delayed HTTP response from overwriting newer pushed state in the browser.
+Workers Static Assets serves the Vite output and SPA navigation fallback. Only `/api/*` runs Python first. The [entrypoint](../backend/src/main.py) forwards room event upgrades directly to the Durable Object; other API requests go through Cloudflare's ASGI adapter into [FastAPI](../backend/src/fastapi_app.py), without a Uvicorn server process.
 
-The browser offers `knowthechat.v1` and `session.<token>` as WebSocket subprotocols; the response selects only `knowthechat.v1`. Tokens never enter URLs. Upgrades validate the same origin and existing membership before acceptance, with at most two sockets per player and sixteen per room. Leaving or expiring a room closes its sockets.
+FastAPI/Pydantic validates settings and commands. Middleware bounds archive/room POST bodies to 16 KiB, and dynamic responses use `Cache-Control: no-store`. Unknown API paths return API errors rather than the SPA. Room HTTP requests check the host against a supplied browser `Origin`; WebSocket upgrades check the full supplied origin.
 
-Browser heartbeat messages receive a static `ping`/`pong` auto-response from Cloudflare without waking Python. There are no server timer loops. Socket attachments and auto-response timestamps remain available after hibernation; SQLite remains the game authority. Clients reconnect with bounded backoff and fall back to HTTP state requests when WebSockets are unavailable. A healthy socket stops fallback polling.
+| Public route                                             | Responsibility                                                                          |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `POST /api/public-archive`                               | Return ranked chatters and candidate quotes for solo play.                              |
+| `POST /api/rooms`                                        | Admit preparation, fetch a private deck, initialize a room, and issue the host session. |
+| `POST /api/rooms/:code/join`                             | Add a player to a `waiting` room and issue their session.                               |
+| `GET /api/rooms/:code`                                   | Return the authenticated player's snapshot; also supplies HTTP fallback/presence.       |
+| `POST /api/rooms/:code/{start,guess,next,rematch,leave}` | Apply a validated action; `guess` includes `roundId` and `choice`.                      |
+| `GET /api/rooms/:code/events`                            | Upgrade to a hibernating WebSocket for that player's updates.                           |
 
-The first multiplayer version used polling to simplify its transport; this was an implementation choice, not a Workers plan restriction. Python hibernation support is documented in [Cloudflare's WebSocket guide](https://developers.cloudflare.com/durable-objects/best-practices/websockets/).
+Route sources: [room routes](../backend/src/room_routes.py), [request models](../backend/src/room_models.py), and [native event forwarding](../backend/src/runtime/room_events.py).
 
-## Multiplayer admission
+### Public archive pipeline
 
-The shared admission object applies four configurable limits: ten open rooms; 100 admitted archive preparations, including rematches, in a rolling 24-hour window; 100 new-match admissions in a rolling 24-hour window; and three admitted new-room preparations per network key in a rolling 60-second window. Waiting rooms and final standings occupy capacity until the room closes or expires. Requests denied before preparation do not consume preparation records. Once admitted, a failed archive preparation still counts toward its rolling limit.
+[PublicArchiveService](../backend/src/services/public_archive.py) serves solo loading, room creation, and rematches. Its [runtime composition](../backend/src/runtime/archive.py) wires replaceable providers through small `Protocol` interfaces and constructor injection.
 
-Room creation reserves a slot before fetching any archive. The preparation timeout is 90 seconds; an unfinished reservation expires after two minutes. A completed room keeps its slot until its fixed two-hour expiry or closure, including departure of the last member. Cleanup uses scheduled alarms and expiry checks, so an interrupted preparation does not hold capacity indefinitely.
+1. Discover historical log instances through Zonian, accept trusted origins, and merge available dates. Select active dates across chronological buckets using message-count metadata, then fetch bounded windows within those dates.
+2. Parse and filter bots, system events, commands, low-quality messages, and exact/near duplicates. Rank recognizable chatters using participation, activity across days/months, and badges.
+3. If the initial historical sample has too few playable quotes, attempt one bounded expansion pass. Keep the initial sample if expansion fails. Recent-message fallback is allowed only when discovery confirms the historical archive is missing, for a rolling period or the current year. Historical and recent sources are never mixed; a historical discovery failure returns an error instead of silently changing the source.
+4. Merge optional emote catalogs and select representative high-quality quotes per chatter. The solo response includes authors. Multiplayer converts it into a private deck and exposes only the current clue without its author until reveal.
 
-The first start reserves a match admission. Every admitted rematch attempt counts as another archive preparation, including failed fetches, while retaining the room's existing slot and using no new per-network creation entry. A rematch reserves the next match before fetching; retries for that pending match reuse its admission, and the following start does not count it again. Admission identifiers make repeated checks for the same match idempotent. If a check is unavailable or denied, the new action does not proceed; existing guesses, reveals and connected games continue normally. The browser displays a retry delay when supplied, disables only the rejected action until that delay expires, and never automatically retries a creation or command.
+| External service                                    | Caller and purpose                                                           |
+| --------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Zonian and trusted public log instances             | Python discovers and samples historical archives.                            |
+| Robotty, Zneix, and Zonian recent-message endpoints | Python fetches recent chat when fallback is allowed.                         |
+| 7TV, BetterTTV, FrankerFaceZ                        | Python loads emote catalogs; solo also attempts browser-side 7TV enrichment. |
+| IVR and image/emote CDNs, including Twitch's CDN    | The browser loads optional streamer profiles and renders remote images.      |
 
-The per-network ledger stores only a SHA-256 network key and admission timestamp, for 60 seconds. This key is pseudonymous, not anonymous; unhashed IP addresses are not persisted in admission storage. Preparation and match records contain reservation identifiers and timestamps for their 24-hour windows. Active reservations retain only the lifecycle data needed to release capacity. Requests and alarms prune expired records.
+URLs and parsers live in [archives.py](../backend/src/providers/archives.py) and [emotes.py](../backend/src/providers/emotes.py). Browser requests live in [App.tsx](../frontend/src/App.tsx), [useStreamerProfile.ts](../frontend/src/useStreamerProfile.ts), and [PartyGame.tsx](../frontend/src/PartyGame.tsx). No Twitch login or live chat connection is required. Separately, [index.html](../frontend/index.html) loads Google AdSense, outside the game-state flow; see the [privacy notice](../PRIVACY.md).
 
-Rooms created before admission reservations were introduced can finish their current game. Starting a new game or rematch from a room without a reservation requires creating a fresh lobby. Rooms without stored original archive settings also require a fresh lobby for rematches. Quote hashes stay internal and never enter a public snapshot; they expire with the room's fixed two-hour lifetime.
+## Multiplayer architecture
 
-## Request lifecycle
+### Authority and persistence
 
-```text
-POST /api/public-archive
-  → bounded ASGI body read
-  → FastAPI + Pydantic PublicArchiveRequest validation
-  → PublicArchiveService
-      → discover trusted public log instances through Zonian
-      → merge the instances' available archive dates
-      → reject an unavailable calendar year before archive downloads
-      → sample at most 12 dates from the selected period
-      → fetch and parse historical messages
-      → use the historical archive exclusively when it exists
-      → use recent providers only when no archive exists and the period is rolling or current-year
-      → filter bots/events/low-quality messages
-      → remove exact and near duplicates
-      → rank recognizable chatters
-      → fetch and merge emote catalogs
-      → score and select quotes
-  → Pydantic PublicArchiveResponse serialization
-  → JSON response with Cache-Control: no-store
+`GAME_ROOMS.getByName(code)` addresses one Python `GameRoom` per six-character code. Its `room_state` SQLite table holds one JSON row: members, host, token hashes, private rounds, guesses, pending points, scores/streaks, deadline, expiry, revision, original archive settings, and recent quote hashes. Commands, connections, and alarms reload that state; the Python instance is not the authority. Initial start requires 2–8 players. Matches have 5/10/20 rounds and 15/20/30-second deadlines.
+
+Creation fetches archives **before** initialization, then activates its reservation and stores the deck. Only selected rounds and up to 2,000 recent quote-text hashes are retained, not the downloaded archive. Initial and replacement payloads are checked against a 256,000-byte limit. Bounded history means sufficiently old clues can eventually recur.
+
+The deterministic [Room rules](../backend/src/domain/rooms.py) lock one guess per player per round. Correct guesses calculate `1000 + floor(500 × remaining_fraction)` using server receipt time; wrong or missing guesses earn zero. Points remain private until `reveal()`, which updates everyone's score and streak together. Before reveal, a personalized snapshot includes the current clue, the same three choices, the player's own choice, and others' answered status. It omits the author, others' choices, pending points, future deck, token hashes, and quote history.
+
+The host starts and advances play, including a separate `next` after the final reveal to enter `finished`. Departure or inactivity removal transfers hosting to the first remaining member. Disconnecting alone does not immediately remove a member or elect a new host. New players can join only in `waiting`; successful rematches return there and preserve memberships.
+
+### Admission coordination
+
+`ROOM_ADMISSION.getByName("lobbies")` owns a separate SQLite ledger. Configurable allowances cover open rooms/preparations, archive preparations, new matches, and room creation per network key. Waiting lobbies and final standings still occupy capacity. Defaults and configuration live in the [operations guide](cloudflare.md#multiplayer-admission-limits).
+
+Creation reserves capacity before archive I/O. The first start admits its match; rematch preparation admits both the next match and a fresh fetch, retaining the room slot. Match admission is idempotent for a reservation/match number: a failed rematch retry uses another preparation allowance but reuses that pending match's admission. Starting the prepared rematch does not charge it again. Ordinary round gameplay and heartbeat traffic remain local to each room.
+
+Short leases and alarm-driven pruning recover abandoned work. Failed admitted preparations still count; rejected preparations do not. A SHA-256 network key exists only in the 60-second creation ledger, while daily records retain identifiers and timestamps. The key is pseudonymous; raw IP addresses are not persisted there. See [admission settings and retention](cloudflare.md#multiplayer-admission-limits) for configuration and legacy-room handling.
+
+## Multiplayer round flow
+
+This traces [PartyGame](../frontend/src/PartyGame.tsx), [command dispatch](../backend/src/services/room_commands.py), [Room](../backend/src/domain/rooms.py), and [GameRoom](../backend/src/runtime/rooms.py). The host has already created a `waiting` room with a prepared deck. “Browsers” groups the host and guests; each receives its own snapshot. All `/:code` paths below start with `/api/rooms`. WebSocket upgrades bypass FastAPI, and routine HTTP responses are abbreviated.
+
+```mermaid
+sequenceDiagram
+    participant B as Browsers (host + players)
+    participant W as Worker / Python API
+    participant R as GameRoom (authoritative)
+    participant A as RoomAdmission
+
+    B->>W: Player HTTP POST /:code/join {name}
+    W->>R: RPC join
+    R->>R: Check waiting, seat and name, persist member
+    R-->>W: Token + personalized waiting snapshot
+    W-->>B: HTTP session response
+    B->>B: Save code/token in sessionStorage
+    B->>W: WebSocket /:code/events + session subprotocol
+    W->>R: Native upgrade forwarding
+    R-->>B: WebSocket initial personalized snapshot
+
+    B->>W: Host HTTP POST /:code/start
+    W->>R: RPC start
+    R->>A: Admit match (idempotent)
+    A-->>R: Allowed
+    R->>R: Reload and recheck host, phase and players
+    Note right of R: Save round + deadline in SQLite.<br/>Schedule deadline alarm.
+    R-->>B: WebSocket clue, three choices, deadline, serverNow
+
+    loop Each player answers once before the deadline
+        B->>W: HTTP POST /:code/guess {roundId, choice}
+        W->>R: RPC guess with player token
+        R->>R: Apply deadline, validate and persist locked guess
+        R-->>B: WebSocket own choice / others' answered status
+    end
+
+    alt All remaining players answered
+        R->>R: reveal() in last guess / membership change
+    else Server deadline reached
+        R->>R: Durable Object alarm calls advance() and reveal()
+    end
+    Note right of R: Commands also apply elapsed deadlines.<br/>Persist scores and streaks together in SQLite.
+    R-->>B: WebSocket reveal with author, guesses and points
+
+    B->>W: Host HTTP POST /:code/next
+    W->>R: RPC next
+    R->>R: Save next round + deadline, or finished
+    R-->>B: WebSocket next clue or final standings
+
+    opt Reconnect at any phase while membership is valid
+        B->>W: WebSocket upgrade using saved session
+        W->>R: Native upgrade forwarding
+        R->>R: Load SQLite state and apply deadlines/presence
+        R-->>B: Current personalized snapshot (no event replay)
+        Note over B,W: If WebSocket fails, HTTP GET /:code supplies snapshots while reconnecting.
+    end
 ```
 
-Historical and recent messages are never mixed. A confirmed missing channel archive can trigger the recent-message fallback for rolling periods and the current calendar year; past calendar years remain historical-only. The response identifies the chosen source as `historical` or `recent`, and the frontend labels recent-only games. A historical-provider failure returns 503 instead of silently changing the game to recent chat. Individual recent and emote provider failures remain isolated when another provider succeeds. If a selected year has no advertised dates, the API returns a specific 404 before downloading archive bodies. If no source provides usable data, the API returns the generic 404 error contract.
+The answer loop illustrates guesses that leave the round open. The final guess can score, persist, and broadcast `reveal` in that same command; it needs no separate scoring request. The host submits guesses through the same HTTP path. An expired or removed session cannot reconnect as that member.
 
-## Code boundaries
+## Room lifecycle
 
-- `fastapi_app.py` owns API routing, bounded request buffering and preserved error responses.
-- `api_models.py` uses Pydantic only for untrusted request data and the public response contract.
-- `domain/` contains dataclasses and pure functions for normalization, parsing, filtering, scoring, sampling, ranking and duplicate detection.
-- `providers/` contains provider-specific URLs and response parsing.
-- `providers/protocols.py` defines small structural interfaces. Fakes satisfy them without inheritance.
-- `PublicArchiveService` receives providers through its constructor and orchestrates them.
-- `main.py` forwards lobby event upgrades natively and passes other Cloudflare requests to FastAPI through `asgi.fetch()`; it contains no game, filtering or ranking rules.
-- `room_models.py` and `room_routes.py` validate and route the multiplayer HTTP boundary through an injectable `RoomGateway` protocol.
-- `services/rooms.py` fetches and generates private decks; `services/room_commands.py` dispatches room actions; `domain/rooms.py` owns deterministic game rules and redacted snapshots.
-- `runtime/room_events.py` validates and forwards native event upgrades. `runtime/rooms.py` adapts the Cloudflare binding, SQLite persistence, hibernating sockets and alarms. `runtime/admission.py` persists shared reservations and rolling counters; `domain/admission.py` defines the policy settings and gateway protocol. `main.py` exports `GameRoom` and `RoomAdmission` for Wrangler.
+The stored [`Phase`](../backend/src/room_types.py) values are exactly `waiting`, `round`, `reveal`, and `finished`. Preparation/error nodes describe operations and UI states. Rematch loading remains `phase = "finished"`; persisted `rematch_attempt` and `rematch_until` fields guard concurrent preparation without adding a phase.
 
-`Protocol` is used because archive and emote sources are replaceable dependencies and tests need small fakes. There are no ABCs: the implementations share no state or algorithm that would justify runtime inheritance. Constructor injection keeps wiring visible and avoids a DI framework.
+```mermaid
+stateDiagram-v2
+    [*] --> Creating: POST /api/rooms
+    state "Creation / archive preparation (no room yet)" as Creating
+    state "Creation failed / admission denied" as CreateFailed
+    Creating --> CreateFailed: Denied, timed out, or unusable archive
+    CreateFailed --> Creating: User retries after supplied cooldown
+    Creating --> Live: Deck ready + reservation activated + room saved
 
-## Repository tree
+    state "Existing room (fixed two-hour lifetime)" as Live {
+        [*] --> waiting
+        waiting --> waiting: Join / leave or rejected start
+        waiting --> round: Host start + at least 2 players + match admission
+        round --> reveal: Deadline or all remaining players answered
+        reveal --> round: Host next with rounds remaining
+        reveal --> finished: Host next after last reveal
 
-```text
-frontend/
-  public/
-  src/
-    App.tsx
-    App.test.tsx
-    main.tsx
-    styles.css
-  index.html
-  package.json
-  vite.config.ts
-  vitest.config.ts
-  wrangler.jsonc
-backend/
-  src/
-    main.py
-    api_models.py
-    fastapi_app.py
-    domain/
-    providers/
-    runtime/
-    services/
-  tests/
-    test_domain.py
-    test_fastapi_app.py
-    test_providers.py
-    test_service.py
-  pyproject.toml
-  uv.lock
-  pylock.toml
-  wrangler.jsonc
-docs/
-  architecture.md
-  cloudflare.md
-AGENTS.md
-README.md
-package.json
-package-lock.json
+        state "Final standings (phase = finished)" as finished {
+            [*] --> Results
+            state "Showing results" as Results
+            state "Preparing fresh rematch (results retained)" as RematchLoading
+            Results --> RematchLoading: Host rematch / retry when allowed
+            RematchLoading --> Results: Denied, fetch failure, timeout, or stale attempt
+        }
+        RematchLoading --> waiting: Fresh deck committed, reset scores / streaks
+    }
+
+    state "Closed / expired (storage and alarms deleted)" as Closed
+    Live --> Closed: Two hours elapsed or last member leaves / times out
+    Closed --> [*]
 ```
+
+There is no automatic advance from reveal, and rematching does not extend expiry. Failed initial preparation releases its reservation before initialization begins; ambiguous initialization resolves through its lease/room expiry. Rematches persist a two-minute attempt lease and use a 90-second timeout for admission/fetching, then reload and check host, phase, attempt, and expiry before replacing state. Concurrent departures or deletion cannot be overwritten by the old fetch result. Failure keeps scores and the deck intact; a crashed attempt can be retried after its lease expires.
+
+Sources: [creation/deck preparation](../backend/src/services/rooms.py), [rematch/cleanup runtime](../backend/src/runtime/rooms.py), and [fresh-rematch tests](../backend/tests/test_fresh_rematches.py).
+
+## Reliability and reconnection
+
+### Transport and session restoration
+
+The browser saves `{code, token}` in tab-scoped `sessionStorage`. Reloading restores membership while it remains valid; there is no account or cross-device recovery. HTTP uses `Authorization: Bearer`; WebSockets offer `knowthechat.v1` and `session.<token>` and negotiate only the former. Tokens never enter invite links or URLs. The room stores token hashes and attaches only the player ID to sockets, with limits of two sockets per player and sixteen per room.
+
+[connectRoom](../frontend/src/roomConnection.ts) considers a socket healthy after its first valid snapshot, with an eight-second initial timeout. It sends `ping` every 25 seconds and allows ten seconds for `pong`. Cloudflare answers through `setWebSocketAutoResponse` without waking Python. `acceptWebSocket`, attachments, and heartbeat timestamps support hibernation recovery; see [Cloudflare's hibernation guide](https://developers.cloudflare.com/durable-objects/best-practices/websockets/).
+
+Failures trigger exponential reconnect delays capped at 30 seconds and HTTP fallback. Polling normally runs every 1.5 seconds, or five seconds in `finished`, backing off to at most 15 seconds on failures. A healthy socket stops polling. Hidden tabs/page suspension close sockets and stop polling; returning reconnects, subject to membership expiry.
+
+Both transports validate snapshots through [roomProtocol.ts](../frontend/src/roomProtocol.ts). The persisted increasing revision lets [PartyGame](../frontend/src/PartyGame.tsx) ignore older snapshots, including delayed HTTP responses after a push. Reconnection retrieves current state instead of replaying events. Invalid membership/missing rooms clear the saved session; transient failures retain the view and reconnect. User commands are not automatically replayed after a network error.
+
+### Deadlines, cleanup, and failures
+
+The countdown estimates server time from `serverNow` and `deadline`; the authoritative check uses the room clock. One alarm targets the earliest round deadline, member inactivity timeout, or room expiry. Commands also apply expired deadlines before accepting a guess, and reveal is idempotent. A round can end with every browser disconnected.
+
+Members expire after 15 minutes without presence. Before pruning, the runtime incorporates automatic heartbeat timestamps; HTTP presence writes are throttled to 15 seconds. Empty or two-hour-old rooms call `deleteAll()` to clear application storage and alarms, close sockets, and attempt to release capacity. Failed release cannot retain capacity beyond reservation expiry. Unknown room reads create no room tables or alarms. These rules concern application state, not Cloudflare backup retention.
+
+[Outbound HTTP](../backend/src/runtime/http.py) streams into a size-bounded buffer before JSON parsing, with timeouts. Historical loading uses trusted hosts and one archive-body fetch at a time: up to 6,000 retained messages initially, plus 4,000 in one optional expansion. Emote failures are isolated. Create/rematch clients wait up to 110 seconds for preparation responses; other room requests time out after 12 seconds. Supplied admission retry delays disable only the affected action until the user can retry.
+
+The room persists and broadcasts each changed revision before yielding to later commands. Start/rematch reload after external I/O and revalidate before committing. Tests cover [deadline recovery](../backend/tests/test_room_runtime.py), [WebSockets](../backend/tests/test_room_websockets.py), [admission](../backend/tests/test_admission_runtime.py), and [browser reconnection](../frontend/src/PartyGame.live.test.tsx). See [local smoke tests](development.md#smoke-tests) for real runtime integration.
+
+## Deployment model
+
+[`backend/wrangler.jsonc`](../backend/wrangler.jsonc) declares `know-the-chat`, Custom Domains `knowthechat.com` and `www.knowthechat.com`, `ASSETS`, and both SQLite-backed Durable Object classes/migrations. `frontend/dist` supplies assets with SPA fallback and `run_worker_first` limited to `/api/*`. The compatibility date is `2026-08-22` with `python_workers`. [`frontend/wrangler.jsonc`](../frontend/wrangler.jsonc) supports Vite development/builds; it is not the deploy target. See Cloudflare's [selective Worker routing](https://developers.cloudflare.com/workers/static-assets/routing/advanced/) and [Python FastAPI integration](https://developers.cloudflare.com/workers/languages/python/packages/fastapi/).
+
+Cloudflare edge rate limiting is configured separately from the Worker's multiplayer admission coordinator. See [edge rate limiting](cloudflare.md#edge-rate-limiting) for hosting notes.
+
+[`npm run check`](../package.json) validates both applications, builds the frontend, and dry-runs the Worker deployment. [GitHub Actions](../.github/workflows/quality.yml) runs it on pull requests/manual dispatch. The [operations guide](cloudflare.md#deployment-and-rollback) records Workers Builds deployment from `main`; that account-side connection and branch configuration cannot be established from source alone.
+
+## Key design decisions
+
+| Choice                                        | Benefit and tradeoff                                                                                                                              |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| One origin and Worker deployment              | Frontend/API ship together with relative URLs; static requests bypass Python.                                                                     |
+| Browser-owned solo, server-owned multiplayer  | Solo stays simple; multiplayer enforces consistent scoring. Public source material makes this casual play, not an anti-cheat guarantee.           |
+| One SQLite-backed object per room             | One authority for membership, deadlines, and scores. Full personalized snapshots suit eight players; audience-scale play needs measured redesign. |
+| HTTP commands + hibernating WebSocket updates | Reuse validated command routes and allow idle rooms to hibernate. Two transports require shared validation and revision ordering.                 |
+| Separate admission ledger                     | Bound preparation/new matches across rooms while normal rounds continue independently. New actions fail closed if coordination is unavailable.    |
+| Bounded sampling and optional providers       | Keep public archives practical within Worker resource limits, trading exhaustive coverage for bounded work.                                       |
+| Commit fresh rematches after preparation      | Preserve results on failure; history and room lifetime remain bounded.                                                                            |
+| Pure rules and injected protocols             | Test domain behavior without Cloudflare/live HTTP; smoke tests cover runtime integration.                                                         |
+
+### Source map
+
+| Start here                                                                                                                                                       | What it owns                                                                                                                              |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| [`Site.tsx`](../frontend/src/Site.tsx), [`App.tsx`](../frontend/src/App.tsx)                                                                                     | Page/mode selection, solo setup/game/results, seen-message history and preferences.                                                       |
+| [`PartyGame.tsx`](../frontend/src/PartyGame.tsx), [`roomConnection.ts`](../frontend/src/roomConnection.ts), [`roomProtocol.ts`](../frontend/src/roomProtocol.ts) | Multiplayer UI/actions, session restoration, transport, snapshot validation.                                                              |
+| [`audio.ts`](../frontend/src/audio.ts), [`music.ts`](../frontend/src/music.ts), [`StreakEffects.tsx`](../frontend/src/StreakEffects.tsx)                         | Local audio/visual feedback; playground in `frontend/playground/`.                                                                        |
+| [`main.py`](../backend/src/main.py), [`fastapi_app.py`](../backend/src/fastapi_app.py), [`room_routes.py`](../backend/src/room_routes.py)                        | Worker entry, bounded HTTP boundary, validation/routing.                                                                                  |
+| [`backend/src/services/`](../backend/src/services/)                                                                                                              | Archive orchestration, private-deck preparation, command dispatch.                                                                        |
+| [`backend/src/domain/`](../backend/src/domain/)                                                                                                                  | Parsing/filtering/ranking/sampling, game rules, admission policy types. `scoring.py` rates quotes; multiplayer points live in `rooms.py`. |
+| [`backend/src/providers/`](../backend/src/providers/)                                                                                                            | Provider interfaces, URLs, response parsing, emote catalogs.                                                                              |
+| [`backend/src/runtime/`](../backend/src/runtime/)                                                                                                                | Cloudflare HTTP/bindings, SQLite rooms/admission, WebSockets, alarms.                                                                     |
+| [`backend/tests/`](../backend/tests/), frontend `*.test.ts(x)`, [`scripts/`](../scripts/)                                                                        | Domain/runtime and browser tests, local smoke checks, type/audio tooling.                                                                 |
+
+When changing a boundary, trace its route, service, rule, runtime adapter, and frontend consumer before updating the Mermaid block. Keep the [README diagram](../README.md#architecture) as a small overview of this document.

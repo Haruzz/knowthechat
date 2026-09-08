@@ -16,6 +16,12 @@ This avoids a frontend proxy Worker and service-binding hop while retaining `fet
 
 `backend/wrangler.jsonc` is the deploy source of truth. `frontend/wrangler.jsonc` exists only so the official Cloudflare Vite plugin reproduces SPA asset behavior during frontend development/build; do not deploy it as the production application.
 
+## Edge rate limiting
+
+Cloudflare edge rate-limiting rules are managed per zone, separately from the Worker deployment.
+
+When hosting another instance, configure edge rules for that zone; deploying this repository does not install them. The [multiplayer admission coordinator](#multiplayer-admission-limits) is a separate application component that coordinates shared room and preparation capacity.
+
 ## Compatibility and packages
 
 - Compatibility date: `2026-08-22`, selected and tested with the current application.
@@ -55,7 +61,7 @@ Set these string variables in `backend/wrangler.jsonc` when hosting your own ins
 
 Values must be decimal strings from 1 through 10,000; invalid settings fail closed. These are rolling windows, so allowances recover as old admissions expire rather than resetting at midnight. Every admitted archive preparation counts, including each rematch attempt and failed upstream fetch. A rematch reserves its next-match admission before fetching fresh chat; retries for that pending match reuse the same admission, and starting the successfully prepared rematch does not count it twice.
 
-The shared ledger checks and reserves capacity before a new room fetches archives. New-room preparations have a 90-second timeout and a two-minute pending reservation. An activated reservation expires with its two-hour room or releases when the room closes. Rematches retain that existing slot and do not consume another per-network room-creation entry. Existing games keep running when an admission limit is reached. HTTP errors include a readable message and, where available, retry seconds in both `retryAfter` and `Retry-After`; the browser waits for a manual retry. These controls do not change the solo archive endpoint or impose a new limit on joining an existing waiting room.
+The shared ledger checks and reserves capacity before a new room fetches archives. New-room preparations have a 90-second timeout and a two-minute pending reservation. An activated reservation expires with its two-hour room or releases when the room closes. Rematches retain that existing slot and do not consume another per-network room-creation entry. Existing games keep running when an admission limit is reached. HTTP errors include a readable message and, where available, retry seconds in both `retryAfter` and `Retry-After`; the browser waits for a manual retry.
 
 Admission records are cleaned up with requests and alarms. Network hashes remain only for the 60-second creation window; preparation and match records remain for their 24-hour windows. The application does not store raw IP addresses in the admission ledger. People sharing a public IP also share its creation limit. Requests without client-address information, such as local Wrangler requests, share one fixed creation bucket with the same limits.
 
@@ -73,11 +79,11 @@ The Python HTTP adapter passes Cloudflare `cf` cache settings to outbound `fetch
 - emote-provider responses: 3,600 seconds
 - final dynamic API response: `Cache-Control: no-store`
 
-Discovered archive origins are accepted only when they match the source-controlled trusted-host allowlist. At most six instances are consulted, their date lists are merged, and the existing limits of 12 selected dates, 12,000 historical messages and two concurrent archive downloads remain in force. Upstream bodies are streamed with explicit size bounds even if `Content-Length` is absent. Requests have timeouts and the incoming JSON body is limited to 16 KiB.
+Discovered archive origins are accepted only when they match the source-controlled trusted-host allowlist. At most six instances are consulted and their date lists are merged. The provider selects active dates across chronological buckets using message-count metadata, then requests bounded `limit`/`offset` windows rather than whole archives. The initial pass selects at most 12 dates (four for rolling periods up to 30 days, six up to 90 days) and retains at most 6,000 messages. If the playable pool is too small, one expansion pass selects at most six dates and retains up to 4,000 additional messages; the service caps the combined sample at 10,000. Archive bodies are fetched one at a time, while activity-stat requests have concurrency six. Upstream bodies are streamed into a size-bounded buffer before JSON parsing, even without `Content-Length`. Requests have timeouts and incoming API JSON is limited to 16 KiB. These limits live in [archives.py](../backend/src/providers/archives.py) and [public_archive.py](../backend/src/services/public_archive.py).
 
 ## Observability
 
-Wrangler enables Workers Logs at full head sampling and traces at 5%. The service emits structured JSON stage events with durations and counts, including request receipt, historical/recent fetches, parsing/filtering, emote loading, chatter ranking, quote selection, completion and failure. It does not log chat bodies, full archives, or secrets.
+Wrangler enables Workers Logs at full head sampling and traces at 5%. [PublicArchiveService](../backend/src/services/public_archive.py) emits one structured JSON `request_summary` per archive request, with total duration, outcome, channel/period, sampling and filtering counts, emote/catalog counts, and available error details. It does not emit a separate log for each pipeline stage or log chat bodies, full archives, or secrets.
 
 Inspect local logs in the terminal running `uv run pywrangler dev`. After an authorized production deployment:
 
@@ -88,73 +94,26 @@ uv run pywrangler tail
 
 ## Local development
 
-```bash
-npm install
-cd backend
-uv sync
-uv run pywrangler dev
-```
-
-In a second terminal at the repository root:
-
-```bash
-npm run dev
-```
-
-Vite proxies `/api/*` to `http://127.0.0.1:8787`. No production binding or credential is needed because all application providers are public HTTP services.
-
-`pywrangler dev` runs the Worker in Cloudflare's local development runtime. The
-frontend and backend unit tests run without starting either development server.
-
-To exercise the exact combined routing rather than the Vite proxy:
-
-```bash
-npm run build
-cd backend
-uv run pywrangler dev
-```
-
-Then open `http://127.0.0.1:8787`.
+Use the [development guide](development.md) for prerequisites, installation, the Vite/Worker setup, and [production-style local routing](development.md#production-style-local-worker). Local Durable Object bindings are simulated without production account changes; archive providers are still public HTTP services.
 
 ### Local admission smoke test
 
-Use a fresh local persistence directory for each run, because rolling counters
-survive restarts. In one terminal, start an isolated Worker with deliberately
-small test limits:
-
-```bash
-cd backend
-uv run pywrangler dev --port 8788 --persist-to .wrangler/admission-smoke-$(date +%s) \
-  --var ROOM_MAX_OPEN:1 --var ROOM_PREPARATIONS_PER_DAY:3 \
-  --var ROOM_MATCHES_PER_DAY:2 --var ROOM_CREATIONS_PER_MINUTE:3
-```
-
-In another terminal at the repository root:
-
-```bash
-node scripts/smoke-admission.mjs jaxstyle
-```
-
-The script accepts localhost only and uses real public archives. It checks full
-capacity, initial match and fresh-rematch admission, preserved results after a denied
-rematch, capacity release, and rolling preparation counts after room deletion.
-The three preparation slots cover the initial room, its rematch and a new room.
-Stop this isolated server when finished; normal development uses the configured
-defaults.
+The commands and isolated persistence setup have moved to [Development: local admission smoke test](development.md#local-admission-smoke-test). Use fresh local persistence for each run because rolling admission counters survive server restarts.
 
 ## Deployment and rollback
 
-The Worker is connected to the `Haruzz/knowthechat` GitHub repository through
-Cloudflare Workers Builds. Its production branch is `main`; non-production branch
-builds are disabled because GitHub Actions already validates pull requests. The
-Cloudflare build settings use the repository root and run:
+The recorded production setup connects the Worker to the `Haruzz/knowthechat`
+GitHub repository through Cloudflare Workers Builds, with `main` as the production
+branch and non-production branch builds disabled. These are account-side settings,
+not configuration enforced by this repository; verify them in Cloudflare when
+changing build integration. The recorded settings use the repository root and run:
 
 ```text
 Build command:  npm run build
 Deploy command: npm run deploy:worker
 ```
 
-Every merge or direct push to `main` therefore creates a Cloudflare build and, if
+With those settings, every merge or direct push to `main` creates a Cloudflare build and, if
 the build succeeds, deploys the combined Worker. GitHub Actions runs formatting,
 linting, type checks, tests, and a deployment dry run on pull requests. It does
 not deploy the application.
@@ -193,9 +152,9 @@ Cloudflare does not allow rollback across a Durable Object class lifecycle migra
 
 ## Known toolchain limitations
 
-- `pywrangler types` currently has a Windows path-resolution defect in its `@pyodide/ts-to-python` helper. Pyright uses runtime SDK types successfully, and `pywrangler deploy --dry-run` validates bundling.
+- The pinned `@pyodide/ts-to-python` helper has a Windows file-URL defect. Use `npm run types:worker`, which applies the scoped loader workaround and updates the checked-in `backend/typings/js/__init__.pyi`; running bare `pywrangler types` skips that wrapper. See [Python runtime types](development.md#python-runtime-types).
 - The Python bundle is larger than the old TypeScript Worker because it includes Pyodide packages.
-- Random date/quote sampling means successful live responses are behaviorally equivalent, not byte-identical.
+- Historical date/window selection is deterministic for the same metadata and inputs; private multiplayer deck/choice selection uses randomness. Changing public archive contents and random round selection mean live responses are not byte-identical.
 
 ## Official references
 

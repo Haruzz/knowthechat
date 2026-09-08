@@ -13,31 +13,11 @@ documentation, accessibility improvements, and gameplay ideas are welcome.
 
 ## Local development
 
-Install Node.js 22.13 or newer, Python 3.13, npm, and uv. From the repository
-root:
-
-```bash
-npm install
-cd backend
-uv sync
-```
-
-From the repository root, run the backend and frontend in separate terminals.
-
-Backend:
-
-```bash
-cd backend
-uv run pywrangler dev
-```
-
-Frontend:
-
-```bash
-npm run dev
-```
-
-Local development uses only public upstream services.
+Follow the [development guide](docs/development.md) for prerequisites,
+installation, local servers, validation, smoke tests, and the streak/audio
+playground. Start with the [architecture guide](docs/architecture.md) to find
+the relevant code boundaries. Keep its Mermaid diagrams current when changing
+those boundaries.
 
 ## Pull requests
 
