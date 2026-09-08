@@ -1,141 +1,57 @@
 # Know The Chat
 
-![Know The Chat](docs/assets/repository-social-preview.png)
+Know The Chat is a Twitch chat guessing game: read a real archived message and guess which of three chatters said it. Play solo or invite friends to a private, timed match.
 
-Know The Chat is a Twitch chat guessing game. Play solo with streak celebrations or invite friends to a private, timed match using real public archived messages. React and the Python API share one Cloudflare Worker; a SQLite-backed Durable Object coordinates each multiplayer room.
+**[Play at knowthechat.com](https://knowthechat.com)**
 
-**Play at [knowthechat.com](https://knowthechat.com).**
+![Know The Chat preview](docs/assets/repository-social-preview.png)
 
-This is an unofficial community project. It is not affiliated with or endorsed by Twitch, Amazon, any featured streamer, or the public archive and emote providers it uses. See the [privacy notice](PRIVACY.md) and [third-party notices](THIRD_PARTY_NOTICES.md).
+## How to play
 
-## Game modes
+- **Solo:** choose a channel, archive period, and chatter pool. Build a streak, track your accuracy, and unlock celebrations.
+- **With friends:** share a private room with 2–8 players. Everyone gets the same clue and choices; correct, quick answers earn more points. The host advances after each reveal, and rematches fetch fresh clues.
+- **Make it yours:** keyboard controls, optional music and sound effects, visual-effects settings, and reduced-motion support.
 
-- **Solo:** choose a channel, archive period, chatter pool and game length. Five correct guesses ignite the screen edges; higher streaks unlock new celebrations. Track accuracy and your best streak, and toggle sound or effects. Reduced-motion preferences are respected.
-- **Play with friends:** create a private room for 2–8 players and share its invite code or link. Room codes start hidden; copy the code or invite link without displaying it, or use Show/Hide to reveal it on stream. Choose 5, 10 or 20 rounds and a 15, 20 or 30 second timer. Everyone gets the same three choices. Correct answers earn 1,000 points plus up to 500 for speed; the host advances after each shared reveal. Rematches fetch fresh clues using the same channel, archive period and chatter pool, excluding recently played quote texts. Final standings stay visible while the new chat loads; if too few fresh clues are available or loading fails, the results remain and the host can retry or create another lobby.
+No Twitch login is required. Games use public archives, so available channels and periods depend on those providers.
 
-Rooms expire after two hours. The default admission policy allows ten open rooms across the site, including waiting lobbies and final standings, with separate rolling limits on room preparation and new matches. A limit pauses the affected action and shows when to try again; existing matches continue. Self-hosters can change the [admission settings](docs/cloudflare.md#multiplayer-admission-limits).
+## Technical highlights
 
-Reloading the same browser tab restores your player session. Room updates arrive over hibernating WebSockets, with automatic reconnection and an HTTP fallback when needed; the server owns deadlines, scores and answer reveals. This mode is intended for casual matches with friends using public source material.
-
-## Music and sound
-
-Optional music plays in both modes: a relaxed lobby loop during setup and between matches, and a quieter shuffled playlist during gameplay. Each gameplay track plays once before the playlist repeats, and music continues across rounds. Music goes silent for the last five seconds of a multiplayer round, leaving a distinct tick-tock cue each second for players who still need to answer. The countdown uses the SFX toggle and stops when you submit an answer. Music stays silent while the leaderboard or solo results are shown. A short applause recording plays once when solo results open or the final party round reveals its leaderboard. It uses the SFX toggle, preserves normal answer/streak feedback, and stops on a new game, rematch, leaving, muting SFX, or hiding the tab. Restoring an already completed party game does not replay it. Streak jingles briefly lower the music during play. Music is enabled by default at 35% volume; each player controls their own music toggle and volume separately from sound effects and visual effects. Preferences stay in that browser, including a saved choice to turn music off.
-
-The gameplay playlist contains **Three Red Hearts - Penguin Town**, **Three Red Hearts - Sanctuary**, **Sketchbook 2025-12-11**, and **Sketchbook 2024-10-14**. The lobby uses **Super Retro Lounge**. These compressed tracks are served with the frontend and played locally, with no external music service. Tracks load only after music is enabled, playback waits for a browser interaction when required, and hidden tabs pause the music and countdown cues. Artist credits, source links and licenses are included in [the audio notices](frontend/public/audio/CREDITS.md) and the game's **Audio credits** page. Music and clock cues use CC0; **Applause** by Blender Foundation, edited by LeeZH, uses CC BY 3.0. All assets ship with the frontend; applause preloads with SFX and never delays the results screen.
-
-## Prerequisites
-
-- Node.js 22.13 or newer
-- Python 3.13
-- [uv](https://docs.astral.sh/uv/)
-
-Install everything from the repository root:
-
-```bash
-npm install
-cd backend
-uv sync
-```
-
-## Local development
-
-From the repository root, start the backend and frontend in separate terminals.
-
-Backend:
-
-```bash
-cd backend
-uv run pywrangler dev
-```
-
-Frontend:
-
-```bash
-npm run dev
-```
-
-The backend listens on `127.0.0.1:8787`. Vite prints the frontend URL and proxies `/api/*` to the local Worker.
-
-To serve a production frontend build through the local Worker:
-
-```bash
-npm run build
-cd backend
-uv run pywrangler dev
-```
-
-Then open `http://127.0.0.1:8787`.
-
-## Python runtime types
-
-The uv development dependencies already include `workers-runtime-sdk` and `pyodide-py` (via `workers-py`). Cloudflare supplies the `js` module inside its Python runtime; it is not a separate pip/uv package.
-
-Pyright uses the checked-in definitions in `backend/typings/js/` for imports such as `WebSocketPair`, `WebSocketRequestResponsePair` and `AbortSignal`. Keeping this generated `.pyi` file in Git gives fresh checkouts and CI the same types without running the network-dependent generator first. `.gitattributes` marks it as generated so GitHub collapses its diff and excludes it from language statistics. Regenerate it after changing bindings, the compatibility date or flags:
-
-```bash
-npm run types:worker
-```
-
-This runs [Cloudflare's official `pywrangler types` generator](https://developers.cloudflare.com/workers/languages/python/basics/#types-and-autocompletion). The converter is pinned as an npm development dependency. On Windows, a scoped loader corrects its file-URL handling during generation; installed packages are not modified. The generated definitions are for development only and do not provide a native CPython implementation of Cloudflare's APIs.
-
-Known lobby responses use shared field types, and the Python SDK's wrapped bindings use small protocols. Incoming JSON is validated before being exposed as those types. Keep `Any` limited to boundaries that truly have no known shape; `object` in Python and `unknown` in TypeScript require callers to narrow unknown data before use. Pyright also checks `backend/tests/test_editor_types.py` to catch regressions in representative header, socket, storage and lobby-field types.
-
-The audio preparation scripts declare pinned `numpy` and `soundfile` dependencies in their inline uv metadata. Running `uv run scripts/prepare-music.py` creates an isolated environment for that script; the editor uses `backend/.venv` instead. The same packages are included in the project's development dependencies so imports and navigation also work in the editor. After pulling changes, run `uv sync --project backend` and select `backend/.venv/Scripts/python.exe` in VS Code on Windows (`backend/.venv/bin/python` on macOS/Linux). Pyright checks the audio scripts as part of `npm run check`. These development packages are excluded from the Python Worker bundle; normal game builds use the committed audio files.
-
-## Local streak playground
-
-Start the standalone playground from the repository root:
-
-```bash
-npm run dev:streaks
-```
-
-Open [http://127.0.0.1:5174](http://127.0.0.1:5174). No backend, Twitch channel or archive is needed. Use the milestone buttons to preview **On Fire (5)**, **Unstoppable (10)** and **Chat Legend (15+)**, including their sounds. Use the music controls to audition **Lobby** or **Gameplay**, adjust volume, and hear the music dip beneath streak jingles. **Final seconds** and **Try 5-second countdown** both silence the music and run the five tick-tock cues; a guess or celebration stops them early. The preview waits briefly for browser audio permission before starting, and SFX must be on to hear the countdown. **Game over · applause** auditions the final-results applause with music silent; click it again to replay. Simulate correct guesses or a miss, replay a celebration, and toggle sound or visual effects. Reduced-motion preferences still apply. Stop the server with **Ctrl+C**.
-
-This page has a separate development entry point in `frontend/playground/`, listens only on the local loopback interface, and is excluded from the normal production build. The game has no preview link or query-string switch; `?preview=streaks` no longer opens a playground.
-
-## Validation
-
-```bash
-npm run check
-```
-
-This runs formatting, linting, type checks, tests, the frontend build, and a Cloudflare Worker dry run without deploying anything.
-
-With the combined local Worker running, exercise two players against the real Durable Object runtime and public archive providers:
-
-```bash
-node scripts/smoke-multiplayer.mjs jaxstyle
-node scripts/smoke-websockets.mjs jaxstyle
-```
-
-The smoke checks only accept localhost and create disposable five-round rooms. The WebSocket check verifies personalized pushes, heartbeats, reconnection and timer-driven reveals without polling. Use another archived channel as the argument if needed.
+- **React + TypeScript frontend and Python/FastAPI API**, served from one Cloudflare Worker and one origin.
+- **Server-authoritative multiplayer** with a SQLite-backed Durable Object per room, server deadlines, and answers hidden until reveal.
+- **Hibernating WebSocket updates**, automatic reconnection, tab session restoration, and HTTP fallback.
+- **Bounded archive processing** to turn large public chat logs into playable clues within Worker resource limits.
+- **Automated validation** across frontend behavior, Python rules/runtime adapters, types, builds, and Worker deployment dry runs.
 
 ## Architecture
 
-```text
-Browser
-  ├─ GET /*                    → Workers Static Assets → React + Vite
-  ├─ POST /api/public-archive → Python Worker → public archives + emotes
-  └─ /api/rooms/*            → Python Worker → one SQLite Durable Object per room
-       ├─ creation / new match → shared admission Durable Object
-       └─ /:code/events        → hibernating WebSocket updates
+```mermaid
+flowchart LR
+    Browser["Browser · React"]
+    subgraph Worker["Cloudflare · one Worker deployment"]
+        Assets["Static assets"]
+        API["Python API"]
+        Rooms["Room + admission Durable Objects<br/>SQLite state"]
+    end
+    Providers["External archive / emote providers"]
+    Browser <-->|HTTP| Assets
+    Browser <-->|HTTP| API
+    Browser <-->|"WebSocket via Worker"| Rooms
+    API <-->|RPC| Rooms
+    API <-->|HTTP| Providers
+    Rooms <-->|"HTTP · rematches"| Providers
 ```
 
-The frontend and API share one Cloudflare Worker and one origin. See the [architecture guide](docs/architecture.md) and [Cloudflare operations guide](docs/cloudflare.md) for details.
+Read the **[architecture guide](docs/architecture.md)** for the system diagram, multiplayer round sequence, room lifecycle, and links to the implementation.
 
-## CI/CD
+## Explore the repository
 
-GitHub Actions runs `npm run check` on pull requests. After a pull request is merged, Cloudflare Workers Builds builds and deploys `main`.
+- [Development guide](docs/development.md): installation, local servers, validation, smoke tests, and the streak/audio playground.
+- [Cloudflare operations](docs/cloudflare.md): hosting configuration, observability, and rollback.
+- [Contributing](CONTRIBUTING.md) and [roadmap](ROADMAP.md): how to help and ideas for future work.
+- [Audio credits](frontend/public/audio/CREDITS.md): bundled music and sound sources/licenses.
 
-## Roadmap
-
-Know The Chat is under active development. The [roadmap](ROADMAP.md) collects gameplay ideas and open product questions.
-
-## Contributing and security
-
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a substantial pull request. Report suspected vulnerabilities privately by following [SECURITY.md](SECURITY.md), and follow the project [code of conduct](CODE_OF_CONDUCT.md) in community spaces.
+This is an unofficial community project, unaffiliated with Twitch, Amazon, featured streamers, or its data providers. See the [privacy notice](PRIVACY.md), [third-party notices](THIRD_PARTY_NOTICES.md), [security policy](SECURITY.md), and [code of conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
-Know The Chat is available under the [MIT License](LICENSE).
+Project code is available under the [MIT License](LICENSE); bundled audio retains the licenses listed in its credits.
