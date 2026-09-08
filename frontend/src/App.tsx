@@ -283,7 +283,7 @@ export default function App() {
     readPreference("effects"),
   );
   const [musicEnabled, setMusicEnabled] = useState(() =>
-    readPreference("music"),
+    readPreference("music", false),
   );
   const [musicVolume, setMusicVolume] = useState(readMusicVolume);
   const [partyMusic, setPartyMusic] = useState<{

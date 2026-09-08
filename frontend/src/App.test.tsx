@@ -191,19 +191,16 @@ describe("Who Said It frontend", () => {
     expect(musicPlayback.duck).not.toHaveBeenCalled();
   });
 
-  it("starts music on and remembers music and volume independently from sound effects across modes", () => {
+  it("starts music off and remembers music and volume independently from sound effects across modes", () => {
     render(<App />);
     expect(
       screen
         .getByRole("button", { name: "Music" })
         .getAttribute("aria-pressed"),
-    ).toBe("true");
-    expect(
-      (screen.getByRole("slider", { name: "Music volume" }) as HTMLInputElement)
-        .value,
-    ).toBe("35");
+    ).toBe("false");
+    expect(screen.queryByRole("slider", { name: "Music volume" })).toBeNull();
     expect(useMusic).toHaveBeenLastCalledWith({
-      enabled: true,
+      enabled: false,
       volume: 0.35,
       scene: "lobby",
       urgent: false,
@@ -211,10 +208,11 @@ describe("Who Said It frontend", () => {
     expect(musicPlayback.prepare).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Music" }));
-    expect(screen.queryByRole("slider", { name: "Music volume" })).toBeNull();
-    expect(musicPlayback.prepare).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Music" }));
     expect(musicPlayback.prepare).toHaveBeenCalledOnce();
+    expect(
+      (screen.getByRole("slider", { name: "Music volume" }) as HTMLInputElement)
+        .value,
+    ).toBe("35");
     fireEvent.change(screen.getByRole("slider", { name: "Music volume" }), {
       target: { value: "12" },
     });
@@ -262,13 +260,13 @@ describe("Who Said It frontend", () => {
   });
 
   it.each(["", "loud", "-1", "2", "Infinity"])(
-    "defaults music on and ignores invalid saved music volume %j",
+    "defaults music off and ignores invalid saved music volume %j",
     (value) => {
       localStorage.setItem("knowthechat-music-volume", value);
       localStorage.setItem("knowthechat-music", "unexpected");
       render(<App />);
       expect(useMusic).toHaveBeenLastCalledWith({
-        enabled: true,
+        enabled: false,
         volume: 0.35,
         scene: "lobby",
         urgent: false,
