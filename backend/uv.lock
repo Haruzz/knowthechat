@@ -553,9 +553,9 @@ wheels = [
 
 [[package]]
 name = "workers-runtime-sdk"
-version = "1.6.15"
+version = "1.8.2"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/3b/55/ed3005ed4e08191779e6edd6f09944a6dcd3909972fbaaa0bdf380aa87ec/workers_runtime_sdk-1.6.15.tar.gz", hash = "sha256:2909cf24c7da78e1de37d66328ac26df0a8e8f58dd60b877291862bd03ce327b", size = 129286, upload-time = "2026-08-21T14:55:59.332Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b1/57/cd464d50249e7e27f01127f17efecb809ce7d1faeda3a131861a0d9c25e8/workers_runtime_sdk-1.8.2.tar.gz", hash = "sha256:b3d0661a5bf4d46846a2690e80a1393a8f9394867e3798c95fa06d00dd716d52", size = 134572, upload-time = "2026-08-31T15:01:30.473Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/41/64/ec11bf06b740c7619008a817e65743fed7ad99e199c6e99a52b24410d69c/workers_runtime_sdk-1.6.15-py3-none-any.whl", hash = "sha256:498f6214be91e6b7ddcffc9e25c17bf82affb9bd9747bbe11d3ee7d85eb723d9", size = 34921, upload-time = "2026-08-21T14:55:58.024Z" },
+    { url = "https://files.pythonhosted.org/packages/51/d9/b7632ded6d27edbaa4c9cad5cc104aba6cfa3bb2d93551d216b170834dbb/workers_runtime_sdk-1.8.2-py3-none-any.whl", hash = "sha256:45a429b71270d58923297fb9ffd34f3636e10bdebfcfa74e570da42d73117d7e", size = 35569, upload-time = "2026-08-31T15:01:28.433Z" },
 ]
