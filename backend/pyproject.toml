@@ -18,7 +18,7 @@ dev = [
   "pytest>=8.4,<10",
   "pytest-asyncio>=1.1,<2",
   "ruff>=0.12,<1",
-  "soundfile==0.13.1",
+  "soundfile==0.14.0",
   "workers-py>=1.16.7,<2",
   "workers-runtime-sdk",
 ]
