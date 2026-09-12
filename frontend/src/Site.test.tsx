@@ -83,11 +83,11 @@ describe("site routing", () => {
     expect(
       screen.getByRole("heading", { name: "Privacy Policy", level: 1 }),
     ).toBeTruthy();
-    expect(screen.getByText(/Google AdSense/)).toBeTruthy();
+    expect(screen.queryByText(/advertising|consent|Google/i)).toBeNull();
     expect(
-      screen.getByRole("link", {
-        name: "how Google uses information from partner sites",
-      }),
+      screen.getByText(
+        /can use browser controls to block or delete cookies and local storage/,
+      ),
     ).toBeTruthy();
     expect(
       screen.getByRole("link", { name: "Return to Know The Chat" }),
@@ -142,6 +142,6 @@ describe("site routing", () => {
     expect(history.textContent).toContain(
       "deleted with the room, within its two-hour lifetime",
     );
-    expect(screen.getByText("Effective September 5, 2026")).toBeTruthy();
+    expect(screen.getByText("Effective September 12, 2026")).toBeTruthy();
   });
 });

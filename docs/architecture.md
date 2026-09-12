@@ -78,7 +78,7 @@ Route sources: [room routes](../backend/src/room_routes.py), [request models](..
 | 7TV, BetterTTV, FrankerFaceZ                        | Python loads emote catalogs; solo also attempts browser-side 7TV enrichment. |
 | IVR and image/emote CDNs, including Twitch's CDN    | The browser loads optional streamer profiles and renders remote images.      |
 
-URLs and parsers live in [archives.py](../backend/src/providers/archives.py) and [emotes.py](../backend/src/providers/emotes.py). Browser requests live in [App.tsx](../frontend/src/App.tsx), [useStreamerProfile.ts](../frontend/src/useStreamerProfile.ts), and [PartyGame.tsx](../frontend/src/PartyGame.tsx). No Twitch login or live chat connection is required. Separately, [index.html](../frontend/index.html) loads Google AdSense, outside the game-state flow; see the [privacy notice](../PRIVACY.md).
+URLs and parsers live in [archives.py](../backend/src/providers/archives.py) and [emotes.py](../backend/src/providers/emotes.py). Browser requests live in [App.tsx](../frontend/src/App.tsx), [useStreamerProfile.ts](../frontend/src/useStreamerProfile.ts), and [PartyGame.tsx](../frontend/src/PartyGame.tsx). No Twitch login or live chat connection is required. See the [privacy notice](../PRIVACY.md) for data handling and retention.
 
 ## Multiplayer architecture
 

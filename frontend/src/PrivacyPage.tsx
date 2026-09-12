@@ -16,7 +16,7 @@ export default function PrivacyPage() {
     canonical?.setAttribute("href", "https://knowthechat.com/privacy");
     description?.setAttribute(
       "content",
-      "How Know The Chat processes public chat data, browser storage, operational information, and advertising consent.",
+      "How Know The Chat processes public chat data, browser storage, and operational information.",
     );
 
     return () => {
@@ -39,11 +39,11 @@ export default function PrivacyPage() {
           <p className="privacy-intro">
             Know The Chat is an unofficial Twitch chat guessing game operated by
             Harun Bulut. This policy explains what information is processed when
-            you use the site and how advertising privacy choices work. It is not
-            affiliated with or endorsed by Twitch, Amazon, featured streamers,
-            or the archive and emote providers it uses.
+            you use the site. It is not affiliated with or endorsed by Twitch,
+            Amazon, featured streamers, or the archive and emote providers it
+            uses.
           </p>
-          <p className="privacy-updated">Effective September 5, 2026</p>
+          <p className="privacy-updated">Effective September 12, 2026</p>
         </header>
 
         <section>
@@ -64,9 +64,7 @@ export default function PrivacyPage() {
             identifiers in your browser&apos;s local storage to reduce repeated
             rounds, along with music, music volume, sound-effect and
             visual-effects preferences. You can remove this information using
-            your browser&apos;s site data controls. Google&apos;s consent
-            platform may also store your privacy choices so it can remember
-            them.
+            your browser&apos;s site data controls.
           </p>
           <p>
             A multiplayer room code and session token are stored in the browser
@@ -142,64 +140,12 @@ export default function PrivacyPage() {
         </section>
 
         <section>
-          <h2>Advertising, cookies, and consent</h2>
-          <p>
-            We use Google AdSense to display and measure advertising. Third
-            party vendors, including Google, may use cookies, web beacons, IP
-            addresses, or similar identifiers to serve and measure ads.
-            Google&apos;s use of advertising cookies enables Google and its
-            partners to serve ads based on visits to this site or other sites,
-            where permitted by your consent choices and applicable law.
-          </p>
-          <p>
-            Visitors in the European Economic Area, the United Kingdom, and
-            Switzerland are offered Google&apos;s certified consent message,
-            where applicable, with choices to consent, not consent, or manage
-            individual options. Google also provides a privacy and cookie
-            settings control that lets eligible visitors revisit their choice.
-          </p>
-          <p>
-            Visitors in supported US states may be shown a &ldquo;Do Not Sell or
-            Share My Personal Information&rdquo; link. Eligible visitors can use
-            this link to opt out of the sale or sharing of personal information
-            and targeted advertising as those terms are defined by applicable
-            law. Google&apos;s consent platform records and communicates the
-            choice, including through the IAB Global Privacy Platform (GPP)
-            where supported. Providing this choice does not mean that Know The
-            Chat itself sells personal information.
-          </p>
-          <p>
-            Learn more about{" "}
-            <a
-              href="https://policies.google.com/technologies/partner-sites"
-              target="_blank"
-              rel="noreferrer"
-            >
-              how Google uses information from partner sites
-            </a>{" "}
-            and manage personalized advertising through{" "}
-            <a
-              href="https://adssettings.google.com/"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Google Ads Settings
-            </a>
-            . The consent message identifies the other advertising vendors that
-            may receive information.
-          </p>
-        </section>
-
-        <section>
           <h2>Retention and your choices</h2>
           <p>
             Local storage data remains until you clear it. Operational
             information and information processed by independent providers are
             retained according to their respective settings and policies. You
-            can decline or manage advertising consent when the Google message is
-            presented, use an available &ldquo;Do Not Sell or Share My Personal
-            Information&rdquo; link to exercise an applicable US-state opt-out,
-            and use browser controls to block or delete cookies and local
+            can use browser controls to block or delete cookies and local
             storage.
           </p>
         </section>
@@ -217,9 +163,8 @@ export default function PrivacyPage() {
               project issue tracker
             </a>
             . Do not include sensitive or private information in a public issue.
-            Requests about information held by an independent archive,
-            advertising, or infrastructure provider must also be directed to
-            that provider.
+            Requests about information held by an independent archive or
+            infrastructure provider must also be directed to that provider.
           </p>
         </section>
 
