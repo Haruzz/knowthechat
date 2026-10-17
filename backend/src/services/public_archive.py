@@ -20,6 +20,7 @@ from domain.duplicates import NearDuplicateIndex
 from domain.models import Message
 from domain.parsing import parse_irc_message
 from domain.ranking import rank_chatters
+from domain.rooms import message_history_key, quote_key
 from domain.scoring import difficulty_for_age, score_recognizability
 from domain.text import add_third_party_spans
 from providers.protocols import (
@@ -37,6 +38,20 @@ MAX_HISTORICAL_MESSAGES_ACROSS_PASSES = 10_000
 MAX_GAME_QUOTES = 500
 MAX_QUOTES_PER_CHATTER = 15
 MAX_RESPONSE_QUOTES_PER_CHATTER = 25
+
+
+class FreshArchiveRequest(PublicArchiveRequest):
+    """Internal selection constraints; not part of the public HTTP request model."""
+
+    seen_message_keys: frozenset[str] = frozenset()
+    excluded_quote_keys: frozenset[str] = frozenset()
+    required_quotes: int = 20
+
+    def accepts(self, message: Message) -> bool:
+        return (
+            message_history_key(message.id) not in self.seen_message_keys
+            and quote_key(message.body) not in self.excluded_quote_keys
+        )
 
 
 class NoPublicArchiveError(Exception):
@@ -170,6 +185,14 @@ class PublicArchiveService:
         messages = self._deduplicate(parsed, cutoff)
         initial_capacity = self._playable_quote_capacity(messages, request.chatter_pool)
         target_capacity = min(MAX_GAME_QUOTES, request.chatter_pool * MAX_QUOTES_PER_CHATTER)
+        if isinstance(request, FreshArchiveRequest):
+            _, eligible = rank_chatters(messages, request.chatter_pool)
+            initial_capacity = len(
+                self._select_quote_messages([m for m in messages if request.accepts(m)], eligible)
+            )
+            target_capacity = request.required_quotes
+            if len(eligible) < 3:
+                initial_capacity = 0
         summary["initial_playable_quotes"] = initial_capacity
         summary["target_playable_quotes"] = target_capacity
         expanded = False
@@ -215,7 +238,12 @@ class PublicArchiveService:
         ]
         quotes: list[QuoteResponse] = []
         reference_ms = self._now_ms()
-        quote_messages = self._select_quote_messages(messages, eligible)
+        quote_messages = self._select_quote_messages(
+            [m for m in messages if request.accepts(m)]
+            if isinstance(request, FreshArchiveRequest)
+            else messages,
+            eligible,
+        )
         summary["retained_quote_candidates"] = len(quote_messages)
         for message, quality in quote_messages:
             spans = add_third_party_spans(message.body, message.emotes, emotes)

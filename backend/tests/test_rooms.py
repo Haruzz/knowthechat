@@ -348,6 +348,13 @@ async def test_http_lifecycle_bearer_validation_and_no_store() -> None:
         joined = await client.post(f"/api/rooms/{code.lower()}/join", json={"name": "Guest"})
         guest = {"Authorization": f"Bearer {joined.json()['token']}"}
         assert joined.status_code == 200
+        pending_start = await client.post(f"/api/rooms/{code}/start", json={}, headers=host)
+        assert pending_start.status_code == 409
+        synced = await client.post(
+            f"/api/rooms/{code}/history", json={"seenMessageKeys": []}, headers=guest
+        )
+        assert synced.status_code == 200
+        assert synced.json()["historiesReady"] is True
         assert (await client.get(f"/api/rooms/{code}")).status_code == 401
         assert (await client.get(f"/api/rooms/{code}?token={data['token']}")).status_code == 401
         denied = await client.post(f"/api/rooms/{code}/start", json={}, headers=guest)

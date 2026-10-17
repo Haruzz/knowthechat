@@ -11,7 +11,14 @@ from fastapi.responses import JSONResponse
 
 from domain.admission import AdmissionGateway
 from domain.rooms import RoomError
-from room_models import CreateRoomRequest, EmptyRoomRequest, GuessRequest, JoinRoomRequest
+from room_models import (
+    CreateRoomRequest,
+    EmptyRoomRequest,
+    GuessRequest,
+    HistoryRequest,
+    JoinRoomRequest,
+    MatchSettingsRequest,
+)
 from room_types import RoomResult
 from services.rooms import ArchiveService, RoomGateway, RoomService, normalize_code
 
@@ -129,6 +136,36 @@ def add_room_routes(
         return response(
             await gateway_for(request).command(
                 code, "guess", token, {"roundId": payload.round_id, "choice": payload.choice}
+            )
+        )
+
+    @app.post("/api/rooms/{code}/history")
+    async def room_history(code: str, payload: HistoryRequest, request: Request) -> JSONResponse:
+        return response(
+            await gateway_for(request).command(
+                normalize_code(code),
+                "history",
+                bearer(request),
+                {"seenMessageKeys": payload.seen_message_keys},
+            )
+        )
+
+    @app.post("/api/rooms/{code}/settings")
+    async def room_settings(
+        code: str, payload: MatchSettingsRequest, request: Request
+    ) -> JSONResponse:
+        return response(
+            await gateway_for(request).command(
+                normalize_code(code),
+                "settings",
+                bearer(request),
+                {
+                    "channel": payload.channel,
+                    "roundCount": payload.round_count,
+                    "archiveYear": payload.archive_year,
+                    "rangeDays": payload.range_days,
+                    "chatterPool": payload.chatter_pool,
+                },
             )
         )
 

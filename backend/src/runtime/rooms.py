@@ -105,13 +105,15 @@ class GameRoom(DurableObject):
 
         return build_archive_service()
 
-    async def _rematch(self, room: Room, token: str, now: int) -> str:
+    async def _rematch(self, room: Room, token: str, now: int, *, starting: bool = False) -> str:
         attempt = ""
+        action = "start" if starting else "rematch"
         try:
             previous = room.to_json()
             self._refresh_presence(room, now)
             room.advance(now)
-            ticket = self._match_ticket(room, "rematch", token)
+            ticket = self._match_ticket(room, action, token)
+            signature = room.preparation_signature()
             if room.archive_settings is None:
                 raise RoomError("Create a new lobby to fetch fresh chat for rematches.", 409)
             if room.rematch_attempt and now < room.rematch_until:
@@ -126,7 +128,7 @@ class GameRoom(DurableObject):
             async with asyncio.timeout(90):
                 await self._schedule(room)
                 await self._admission().admit_rematch(ticket[0], attempt, ticket[1])
-                rounds = await fresh_rounds(room, self._archive())
+                rounds = await fresh_rounds(room, self._archive(), starting=starting)
             # Leaves, host transfers and expiry can happen during archive I/O.
             now = now_ms()
             current = self._load()
@@ -141,11 +143,17 @@ class GameRoom(DurableObject):
             if (
                 current.rematch_attempt != attempt
                 or now >= current.rematch_until
-                or self._match_ticket(current, "rematch", token) != ticket
+                or self._match_ticket(current, action, token) != ticket
+                or (current.shared_history and current.preparation_signature() != signature)
             ):
                 raise RoomError("The lobby changed. Please try again.", 409)
             player = current.authenticate(token)
-            current.rematch(player, rounds)
+            if starting:
+                current.rounds = rounds
+                current.deck_needs_refresh = False
+                current.start(player, now)
+            else:
+                current.rematch(player, rounds)
             if len(current.to_json().encode()) > MAX_ROOM_STATE_BYTES:
                 raise RoomError("Fresh chat is too large for this lobby. Please try again.", 422)
             self._persist(current, previous, now)
@@ -176,6 +184,7 @@ class GameRoom(DurableObject):
     def _match_ticket(room: Room, action: str, token: str) -> tuple[str, int]:
         player = room.authenticate(token)
         room.require_host(player)
+        room.require_histories()
         if action == "start":
             if room.phase != "waiting":
                 raise RoomError("The match has already started.", 409)
@@ -395,6 +404,13 @@ class GameRoom(DurableObject):
                 self._refresh_presence(room, now)
                 room.advance(now)
                 ticket = self._match_ticket(room, action, token)
+                if room.rematch_attempt and now < room.rematch_until:
+                    raise RoomError("Fresh chat is already being prepared. Please wait.", 409)
+                if room.shared_history and (
+                    room.deck_needs_refresh
+                    or any(item.history_key in room.seen_message_keys() for item in room.rounds)
+                ):
+                    return await self._rematch(room, token, now, starting=True)
                 await self._admission().admit_match(*ticket)
             except RoomError as error:
                 return result_json(error=error)
@@ -419,6 +435,10 @@ class GameRoom(DurableObject):
                 if self._match_ticket(room, action, token) != ticket:
                     raise RoomError("The lobby changed. Please try again.", 409)
             payload = execute_command(room, action, token, json.loads(payload_json), now)
+            if len(room.to_json().encode()) > MAX_ROOM_STATE_BYTES:
+                room = Room.from_json(previous)
+                payload = None
+                raise RoomError("This lobby is too large. Choose fewer rounds.", 422)
         except RoomError as error:
             failure = error
         except (ValidationError, ValueError, TypeError):

@@ -40,6 +40,8 @@ class Player:
     choice: str | None = None
     pending_points: int = 0
     round_points: int = 0
+    seen_message_keys: list[str] = field(default_factory=list)
+    history_ready: bool = False
 
 
 @dataclass(slots=True)
@@ -51,9 +53,14 @@ class GameRound:
     difficulty: Difficulty
     choices: list[str]
     author: str
+    history_key: str = ""
 
 
 MAX_QUOTE_HISTORY = 2_000
+
+
+def message_history_key(message_id: str) -> str:
+    return "h:" + hashlib.sha256(message_id.encode()).hexdigest()[:24]
 
 
 def quote_key(text: str) -> str:
@@ -84,6 +91,10 @@ class Room:
     match_number: int = 0
     archive_settings: RoomArchiveSettings | None = None
     used_quote_keys: list[str] = field(default_factory=list)
+    host_seen_message_keys: list[str] = field(default_factory=list)
+    shared_history: bool = False
+    requested_round_count: int = 0
+    deck_needs_refresh: bool = False
     rematch_attempt: str = ""
     rematch_until: int = 0
 
@@ -136,6 +147,12 @@ class Room:
         if self.phase != "waiting":
             raise RoomError("The match has already started.", 409)
         self._require_players()
+        self.require_histories()
+        if self.shared_history and (
+            self.deck_needs_refresh
+            or any(item.history_key in self.seen_message_keys() for item in self.rounds)
+        ):
+            raise RoomError("Fresh questions must be prepared before starting.", 409)
         self.round_index = 0
         self._start_round(now)
 
@@ -174,6 +191,9 @@ class Room:
             raise RoomError("Wait for the round to finish first.", 409)
         if self.round_index + 1 >= len(self.rounds):
             self.phase = "finished"
+            if self.shared_history:
+                for member in self.players:
+                    member.history_ready = False
             return
         self.round_index += 1
         self._start_round(now)
@@ -186,11 +206,14 @@ class Room:
             [
                 *self.used_quote_keys,
                 *(quote_key(item.text) for item in self.rounds),
-                *(quote_key(item.text) for item in rounds),
+                *(quote_key(item.text) for item in rounds if not self.shared_history),
             ]
         )
-        self.used_quote_keys = list(history)[-MAX_QUOTE_HISTORY:]
+        # Leave room for eight bounded browser histories inside the state-size limit.
+        limit = 1_000 if self.shared_history else MAX_QUOTE_HISTORY
+        self.used_quote_keys = list(history)[-limit:]
         self.rounds = rounds
+        self.deck_needs_refresh = False
         self.rematch_attempt = ""
         self.rematch_until = 0
         self.match_number += 1
@@ -214,6 +237,25 @@ class Room:
             and all(p.choice is not None for p in self.players)
         ):
             self.reveal()
+
+    def seen_message_keys(self) -> set[str]:
+        return set(self.host_seen_message_keys).union(
+            *(set(player.seen_message_keys) for player in self.players)
+        )
+
+    def require_histories(self) -> None:
+        if self.shared_history and any(not player.history_ready for player in self.players):
+            raise RoomError("Waiting for everyone to sync their question history.", 409)
+
+    def preparation_signature(self) -> str:
+        # Presence/score updates do not invalidate I/O; membership, history and settings do.
+        return json.dumps(
+            [
+                [(p.id, p.history_ready, sorted(p.seen_message_keys)) for p in self.players],
+                asdict(self.archive_settings) if self.archive_settings else None,
+                self.requested_round_count,
+            ]
+        )
 
     def _require_players(self) -> None:
         if len(self.players) < 2:
@@ -244,9 +286,11 @@ class Room:
                 "difficulty": game_round.difficulty,
                 "choices": game_round.choices,
             }
+            if game_round.history_key:
+                current["historyKey"] = game_round.history_key
             if revealed:
                 current["author"] = game_round.author
-        return {
+        snapshot: RoomSnapshot = {
             "code": self.code,
             "revision": self.revision,
             "channel": self.channel,
@@ -274,6 +318,17 @@ class Room:
             "round": current,
             "expiresAt": self.expires_at,
         }
+        if self.shared_history:
+            snapshot["historyRequired"] = not player.history_ready
+            snapshot["historiesReady"] = all(p.history_ready for p in self.players)
+            if self.archive_settings:
+                snapshot["matchSettings"] = {
+                    "roundCount": self.requested_round_count or len(self.rounds),
+                    "archiveYear": self.archive_settings.archive_year,
+                    "rangeDays": self.archive_settings.range_days,
+                    "chatterPool": self.archive_settings.chatter_pool,
+                }
+        return snapshot
 
 
 ROOM_ADAPTER = TypeAdapter(Room)

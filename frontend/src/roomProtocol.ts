@@ -14,6 +14,7 @@ export type Player = {
 };
 
 export type PartyRound = {
+  historyKey?: string;
   id: string;
   text: string;
   emotes: Emote[];
@@ -24,6 +25,9 @@ export type PartyRound = {
 };
 
 export type Room = {
+  historyRequired?: boolean;
+  historiesReady?: boolean;
+  matchSettings?: MatchSettings;
   revision?: number;
   code: string;
   channel: string;
@@ -41,6 +45,13 @@ export type Room = {
 };
 
 export type Membership = { token: string; room: Room };
+
+export type MatchSettings = {
+  roundCount: number;
+  archiveYear: number | null;
+  rangeDays: number | null;
+  chatterPool: number;
+};
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -79,6 +90,9 @@ function isRound(value: unknown): value is PartyRound {
     isObject(value) &&
     typeof value.id === "string" &&
     typeof value.text === "string" &&
+    (value.historyKey === undefined ||
+      (typeof value.historyKey === "string" &&
+        /^h:[a-f0-9]{24}$/.test(value.historyKey))) &&
     Array.isArray(value.emotes) &&
     value.emotes.every(isEmote) &&
     isNumber(value.sentAt) &&
@@ -94,6 +108,19 @@ function isRound(value: unknown): value is PartyRound {
 function isRoom(value: unknown): value is Room {
   return (
     isObject(value) &&
+    (value.historyRequired === undefined ||
+      typeof value.historyRequired === "boolean") &&
+    (value.historiesReady === undefined ||
+      typeof value.historiesReady === "boolean") &&
+    (value.matchSettings === undefined ||
+      (isObject(value.matchSettings) &&
+        [5, 10, 20].includes(Number(value.matchSettings.roundCount)) &&
+        isNumber(value.matchSettings.roundCount) &&
+        (value.matchSettings.archiveYear === null ||
+          isNumber(value.matchSettings.archiveYear)) &&
+        (value.matchSettings.rangeDays === null ||
+          isNumber(value.matchSettings.rangeDays)) &&
+        isNumber(value.matchSettings.chatterPool))) &&
     (value.revision === undefined || isNumber(value.revision)) &&
     typeof value.code === "string" &&
     typeof value.channel === "string" &&

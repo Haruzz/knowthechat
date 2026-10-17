@@ -8,7 +8,7 @@ from pydantic import ConfigDict, with_config
 
 Phase = Literal["waiting", "round", "reveal", "finished"]
 Difficulty = Literal["easy", "medium", "hard"]
-SnapshotAction = Literal["state", "start", "guess", "next", "rematch"]
+SnapshotAction = Literal["state", "start", "guess", "next", "rematch", "history", "settings"]
 CommandAction = SnapshotAction | Literal["join", "leave"]
 
 
@@ -20,6 +20,7 @@ class EmoteSnapshot(TypedDict):
 
 
 class RoundSnapshot(TypedDict):
+    historyKey: NotRequired[str]
     id: str
     text: str
     emotes: list[EmoteSnapshot]
@@ -40,7 +41,17 @@ class PlayerSnapshot(TypedDict):
     roundPoints: int
 
 
+class MatchSettings(TypedDict):
+    roundCount: int
+    archiveYear: int | None
+    rangeDays: float | None
+    chatterPool: int
+
+
 class RoomSnapshot(TypedDict):
+    historyRequired: NotRequired[bool]
+    historiesReady: NotRequired[bool]
+    matchSettings: NotRequired[MatchSettings]
     code: str
     revision: int
     channel: str
@@ -84,7 +95,19 @@ class EmptyPayload(TypedDict):
     pass
 
 
-CommandPayload = JoinPayload | GuessPayload | EmptyPayload
+class HistoryPayload(TypedDict):
+    seenMessageKeys: list[str]
+
+
+class SettingsPayload(TypedDict):
+    channel: str
+    roundCount: int
+    archiveYear: int | None
+    rangeDays: float | None
+    chatterPool: int
+
+
+CommandPayload = JoinPayload | GuessPayload | EmptyPayload | HistoryPayload | SettingsPayload
 CommandResult = RoomSnapshot | RoomSession | LeaveResult
 RoomResult = CommandResult | EmptyResult
 

@@ -54,10 +54,14 @@ const settings = {
 
 async function finishMatch(host, guest) {
   const texts = [];
+  const seenMessageKeys = [];
   const path = `/api/rooms/${host.room.code}`;
+  for (const member of [host, guest])
+    await ok(`${path}/history`, { seenMessageKeys }, member.token);
   let room = await ok(`${path}/start`, {}, host.token);
   while (room.phase === "round") {
     texts.push(room.round.text);
+    seenMessageKeys.push(room.round.historyKey);
     const guess = { roundId: room.round.id, choice: room.round.choices[0] };
     await ok(`${path}/guess`, guess, host.token);
     room = await ok(`${path}/guess`, guess, guest.token);
@@ -65,6 +69,8 @@ async function finishMatch(host, guest) {
     room = await ok(`${path}/next`, {}, host.token);
   }
   assert.equal(room.phase, "finished");
+  for (const member of [host, guest])
+    await ok(`${path}/history`, { seenMessageKeys }, member.token);
   return { room, texts };
 }
 

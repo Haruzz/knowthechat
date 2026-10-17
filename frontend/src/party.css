@@ -101,6 +101,18 @@
   grid-template-columns: 1fr 1fr;
   gap: 10px 14px;
 }
+.party-fresh-options {
+  width: min(100%, 520px);
+  margin: 0 auto 20px;
+}
+.party-fresh-options legend {
+  margin-bottom: 12px;
+  color: #c5b9d8;
+  font-weight: 750;
+}
+.party-fresh-options button {
+  grid-column: 1 / -1;
+}
 .party-submit {
   width: 100%;
   margin-top: 12px;
@@ -529,6 +541,7 @@
   opacity: 0.45;
 }
 .party-game button:focus-visible,
+.party-game select:focus-visible,
 .party-setup button:focus-visible,
 .party-setup input:focus-visible,
 .party-setup select:focus-visible {

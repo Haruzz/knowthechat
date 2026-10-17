@@ -131,10 +131,10 @@ describe("site routing", () => {
       "retention may outlast application deletion",
     );
     const history = screen.getByText(
-      /Rooms also store the original archive settings/,
+      /Rooms also store the selected archive settings/,
     );
     expect(history.textContent).toContain(
-      "hashes of up to 2,000 recently used quote texts",
+      "hashes of up to 1,000 recently used quote texts",
     );
     expect(history.textContent).toContain(
       "internal quote history is not sent to players",
@@ -142,6 +142,6 @@ describe("site routing", () => {
     expect(history.textContent).toContain(
       "deleted with the room, within its two-hour lifetime",
     );
-    expect(screen.getByText("Effective September 12, 2026")).toBeTruthy();
+    expect(screen.getByText("Effective October 17, 2026")).toBeTruthy();
   });
 });

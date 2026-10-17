@@ -20,6 +20,7 @@ from domain.rooms import (
     Room,
     RoomArchiveSettings,
     RoomError,
+    message_history_key,
     quote_key,
     token_hash,
 )
@@ -32,6 +33,7 @@ from room_types import (
     RoomSession,
     SuccessEnvelope,
 )
+from services.public_archive import FreshArchiveRequest
 
 ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 ROOM_CODE_PATTERN = re.compile(r"[A-HJ-NP-Z2-9]{6}")
@@ -67,21 +69,28 @@ def new_player(name: str, now: int) -> tuple[Player, str]:
 
 
 def build_rounds(
-    archive: PublicArchiveResponse, round_count: int, excluded: set[str] | None = None
+    archive: PublicArchiveResponse,
+    round_count: int,
+    excluded: set[str] | None = None,
+    seen_message_keys: set[str] | None = None,
 ) -> list[GameRound]:
     names = list(dict.fromkeys(chatter.name for chatter in archive.chatters))
     seen = set(excluded or ())
     quotes = []
     for quote in archive.quotes:
         key = quote_key(quote.text)
-        if quote.author in names and key not in seen:
+        if (
+            quote.author in names
+            and key not in seen
+            and message_history_key(quote.id) not in (seen_message_keys or set())
+        ):
             quotes.append(quote)
             seen.add(key)
     if len(names) < 3 or len(quotes) < round_count:
         raise RoomError(
             (
-                "Not enough fresh chat. Try again or create a lobby with a wider period."
-                if excluded is not None
+                "Not enough fresh chat for everyone. Choose fewer rounds or a wider archive period."
+                if excluded is not None or seen_message_keys
                 else "Not enough chat for this match. Try another channel, period, or fewer rounds."
             ),
             422,
@@ -107,28 +116,37 @@ def build_rounds(
                 difficulty=quote.difficulty,
                 choices=choices,
                 author=quote.author,
+                history_key=message_history_key(quote.id),
             )
         )
     return rounds
 
 
-async def fresh_rounds(room: Room, archive: ArchiveService) -> list[GameRound]:
+async def fresh_rounds(
+    room: Room, archive: ArchiveService, *, starting: bool = False
+) -> list[GameRound]:
     settings = room.archive_settings
     if settings is None:
         raise RoomError("Create a new lobby to fetch fresh chat for rematches.", 409)
+    excluded = set(room.used_quote_keys)
+    if not starting:
+        excluded.update(quote_key(item.text) for item in room.rounds)
+    seen = room.seen_message_keys()
+    count = room.requested_round_count or len(room.rounds)
     response = await archive.execute(
-        PublicArchiveRequest(
+        FreshArchiveRequest(
             channel=room.channel,
             rangeDays=settings.range_days,
             archiveYear=settings.archive_year,
             chatterPool=settings.chatter_pool,
+            seen_message_keys=frozenset(seen),
+            excluded_quote_keys=frozenset(excluded),
+            required_quotes=count,
         )
     )
     if response.channel != room.channel:
         raise RoomError("Fresh chat could not be loaded. Please try again.", 503, 15)
-    excluded = set(room.used_quote_keys)
-    excluded.update(quote_key(item.text) for item in room.rounds)
-    return build_rounds(response, len(room.rounds), excluded)
+    return build_rounds(response, count, excluded, seen)
 
 
 @dataclass(slots=True)
@@ -157,7 +175,13 @@ class RoomService:
         try:
             # Stay inside the admission controller's 120s preparation lease.
             async with asyncio.timeout(90):
-                archive = await self.archive.execute(request.archive_request())
+                archive = await self.archive.execute(
+                    FreshArchiveRequest(
+                        **request.archive_request().model_dump(),
+                        seen_message_keys=frozenset(request.seen_message_keys),
+                        required_quotes=request.round_count,
+                    )
+                )
             return await self._initialize(request, archive, preparation)
         except TimeoutError:
             raise RoomError(
@@ -179,9 +203,13 @@ class RoomService:
         archive: PublicArchiveResponse,
         preparation: RoomPreparation,
     ) -> RoomSession:
-        rounds = build_rounds(archive, request.round_count)
+        rounds = build_rounds(
+            archive, request.round_count, seen_message_keys=set(request.seen_message_keys)
+        )
         now = self.clock()
         player, token = new_player(request.name, now)
+        player.seen_message_keys = request.seen_message_keys
+        player.history_ready = True
         for _attempt in range(4):
             code = "".join(secrets.choice(ROOM_CODE_ALPHABET) for _ in range(6))
             room = Room(
@@ -196,7 +224,8 @@ class RoomService:
                 archive_settings=RoomArchiveSettings(
                     request.range_days, request.archive_year, request.chatter_pool
                 ),
-                used_quote_keys=[quote_key(item.text) for item in rounds],
+                shared_history=True,
+                requested_round_count=request.round_count,
             )
             state = room.to_json()
             if len(state.encode()) > MAX_ROOM_STATE_BYTES:

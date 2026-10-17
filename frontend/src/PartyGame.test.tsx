@@ -10,6 +10,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import PartyGame from "./PartyGame";
+import { messageHistoryKey } from "./seenHistory";
 import { useStreamerProfile } from "./useStreamerProfile";
 
 vi.mock("./useStreamerProfile", () => ({
@@ -76,6 +77,7 @@ function remember() {
 }
 
 beforeEach(() => {
+  localStorage.clear();
   vi.mocked(useStreamerProfile).mockReturnValue(null);
   vi.stubGlobal("WebSocket", undefined);
   sessionStorage.clear();
@@ -92,6 +94,150 @@ afterEach(() => {
 });
 
 describe("private party game", () => {
+  it("waits for group history and lets the host recover by changing match settings", async () => {
+    remember();
+    localStorage.setItem(
+      "knowthechat-seen:example",
+      JSON.stringify(["solo-message"]),
+    );
+    let view = {
+      ...waitingRoom(),
+      historyRequired: true,
+      historiesReady: false,
+      matchSettings: {
+        roundCount: 20,
+        archiveYear: 2024 as number | null,
+        rangeDays: null as number | null,
+        chatterPool: 50,
+      },
+    };
+    let finishHistory!: () => void;
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url.endsWith("/history")) {
+          await new Promise<void>((resolve) => {
+            finishHistory = resolve;
+          });
+          view = { ...view, historyRequired: false, historiesReady: true };
+          return response(view);
+        }
+        if (url.endsWith("/settings")) {
+          const settings = JSON.parse(String(init?.body));
+          view = { ...view, matchSettings: settings };
+          return response(view);
+        }
+        if (url.endsWith("/start"))
+          return response(
+            {
+              error:
+                "Not enough fresh chat for everyone. Choose fewer rounds or a wider archive period.",
+            },
+            422,
+          );
+        return response(view);
+      });
+    render(<PartyGame onBack={vi.fn()} />);
+    const start = await screen.findByRole("button", {
+      name: "Everyone in? Start the game →",
+    });
+    expect(start).toHaveProperty("disabled", true);
+    expect(
+      screen.queryByRole("button", { name: "Apply match settings" }),
+    ).toBeNull();
+    expect(screen.queryByText("Next match settings")).toBeNull();
+    await waitFor(() => expect(finishHistory).toBeTypeOf("function"));
+    await act(async () => finishHistory());
+    await waitFor(() => expect(start).toHaveProperty("disabled", false));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/rooms/ABC234/history",
+      expect.objectContaining({
+        body: JSON.stringify({
+          seenMessageKeys: [await messageHistoryKey("solo-message")],
+        }),
+      }),
+    );
+    fireEvent.click(start);
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "fewer rounds",
+    );
+    fireEvent.change(screen.getByLabelText("Rounds"), {
+      target: { value: "5" },
+    });
+    fireEvent.change(screen.getByLabelText("Archive period"), {
+      target: { value: "90" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Apply match settings" }),
+    );
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/rooms/ABC234/settings",
+        expect.objectContaining({
+          body: JSON.stringify({
+            channel: "example",
+            roundCount: 5,
+            archiveYear: null,
+            rangeDays: 90,
+            chatterPool: 50,
+          }),
+        }),
+      ),
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Apply match settings" }),
+      ).toBeNull(),
+    );
+  });
+
+  it("syncs a guest's history including the last displayed clue before rematches", async () => {
+    remember();
+    const historyKey = await messageHistoryKey("last-clue");
+    let view = {
+      ...activeRoom(),
+      you: "friend",
+      phase: "finished",
+      historyRequired: true,
+      historiesReady: false,
+      round: { ...activeRoom().round, historyKey, author: "Alice" },
+    };
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input) => {
+        if (String(input).endsWith("/history"))
+          view = { ...view, historyRequired: false, historiesReady: true };
+        return response(view);
+      });
+    render(<PartyGame onBack={vi.fn()} />);
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/rooms/ABC234/history",
+        expect.objectContaining({
+          body: JSON.stringify({ seenMessageKeys: [historyKey] }),
+        }),
+      ),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Apply match settings" }),
+    ).toBeNull();
+  });
+
+  it("records the displayed multiplayer clue in shared history", async () => {
+    remember();
+    const room = activeRoom();
+    const historyKey = await messageHistoryKey("original-message");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      response({ ...room, round: { ...room.round, historyKey } }),
+    );
+    render(<PartyGame onBack={vi.fn()} />);
+    await screen.findByRole("button", { name: /Alice/ });
+    expect(
+      JSON.parse(localStorage.getItem("knowthechat-seen:example")!),
+    ).toEqual([historyKey]);
+  });
   it("keeps the creator credit and supporting links on party setup", () => {
     render(<PartyGame onBack={vi.fn()} />);
     const links = screen.getByRole("navigation", { name: "Project links" });
@@ -811,6 +957,10 @@ describe("private party game", () => {
   });
 
   it("creates a lobby with the selected archive and saves a reconnect token", async () => {
+    localStorage.setItem(
+      "knowthechat-seen:example",
+      JSON.stringify(["solo-message"]),
+    );
     const room = { ...waitingRoom(), players: [player("host", "Harun")] };
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
@@ -847,6 +997,7 @@ describe("private party game", () => {
           chatterPool: 50,
           roundCount: 5,
           roundSeconds: 20,
+          seenMessageKeys: [await messageHistoryKey("solo-message")],
         }),
       }),
     );

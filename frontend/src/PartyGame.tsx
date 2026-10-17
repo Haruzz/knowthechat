@@ -8,6 +8,8 @@ import {
 } from "react";
 
 import StreakEffects from "./StreakEffects";
+import PartyMatchSettings from "./PartyMatchSettings";
+import { readSeenHistory, rememberMessage } from "./seenHistory";
 import GameChannel from "./GameChannel";
 import ProjectLinks from "./ProjectLinks";
 import type { MusicScene } from "./music";
@@ -25,7 +27,7 @@ import {
 import "./party.css";
 
 type Session = { code: string; token: string };
-type Action = "start" | "guess" | "next" | "rematch" | "leave";
+type Action = "start" | "guess" | "next" | "rematch" | "leave" | "settings";
 type LimitedAction = "create" | "start" | "rematch";
 type Cooldowns = Partial<Record<LimitedAction, number>>;
 
@@ -114,7 +116,11 @@ async function request<T>(
 ): Promise<T> {
   const timeout = window.setTimeout(
     () => controller.abort("timeout"),
-    path === "/api/rooms" || path.endsWith("/rematch") ? 110_000 : 12_000,
+    path === "/api/rooms" ||
+      path.endsWith("/rematch") ||
+      path.endsWith("/start")
+      ? 110_000
+      : 12_000,
   );
   try {
     const response = await fetch(path, {
@@ -317,6 +323,12 @@ export default function PartyGame({
 }) {
   const [session, setSession] = useState<Session | null>(savedSession);
   const [room, setRoom] = useState<Room | null>(null);
+  const [historySynced, setHistorySynced] = useState("");
+  const [historyError, setHistoryError] = useState("");
+  useEffect(() => {
+    if (room?.round?.historyKey)
+      rememberMessage(room.channel, room.round.historyKey);
+  }, [room]);
   const streamer = useStreamerProfile(room?.channel ?? null);
   const [tab, setTab] = useState<"create" | "join">(() =>
     inviteCode() ? "join" : "create",
@@ -330,6 +342,7 @@ export default function PartyGame({
   const [roundSeconds, setRoundSeconds] = useState("20");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [showFreshOptions, setShowFreshOptions] = useState(false);
   const [cooldowns, setCooldowns] = useState<Cooldowns>({});
   const [connectionError, setConnectionError] = useState("");
   const [copyStatus, setCopyStatus] = useState("");
@@ -352,6 +365,10 @@ export default function PartyGame({
     roundId: string | null;
   } | null>(null);
   const phase = room?.phase;
+  const historyPending =
+    room?.historiesReady === false ||
+    (room?.historyRequired !== undefined &&
+      (room.historyRequired || historySynced !== `${session?.token}:${phase}`));
   const me = room?.players.find((player) => player.id === room.you);
   const secondsLeft =
     !room || room.deadline === null
@@ -400,6 +417,12 @@ export default function PartyGame({
 
   const reportActionError = useCallback((problem: unknown, action: string) => {
     setError(errorMessage(problem));
+    if (
+      (action === "start" || action === "rematch") &&
+      problem instanceof RoomError &&
+      problem.status === 422
+    )
+      setShowFreshOptions(true);
     if (
       limitedAction(action) &&
       problem instanceof RoomError &&
@@ -481,6 +504,8 @@ export default function PartyGame({
       return;
     const membershipChanged =
       latest?.code !== nextRoom.code || latest.you !== nextRoom.you;
+    if (membershipChanged || nextRoom.phase === "round")
+      setShowFreshOptions(false);
     if (
       membershipChanged ||
       (nextRoom.phase === "waiting" && latest?.phase !== "waiting") ||
@@ -545,6 +570,56 @@ export default function PartyGame({
         completionCallback.current?.();
     }
   }, []);
+
+  useEffect(() => {
+    if (
+      !session ||
+      !room?.channel ||
+      room.historyRequired === undefined ||
+      (phase !== "waiting" && phase !== "finished")
+    )
+      return;
+    const identity = `${session.token}:${phase}`;
+    if (!room.historyRequired && historySynced === identity) return;
+    let controller: AbortController | undefined;
+    let disposed = false;
+    let timer: number | undefined;
+    const sync = async () => {
+      controller = new AbortController();
+      try {
+        const keys = await readSeenHistory(room.channel);
+        if (disposed) return;
+        const result = await request(
+          `/api/rooms/${session.code}/history`,
+          controller,
+          parseRoom,
+          session.token,
+          { seenMessageKeys: keys },
+        );
+        if (disposed) return;
+        setHistorySynced(identity);
+        setHistoryError("");
+        acceptRoom(result);
+      } catch {
+        if (disposed) return;
+        setHistoryError("Could not sync your question history. Retrying…");
+        timer = window.setTimeout(() => void sync(), 3_000);
+      }
+    };
+    void sync();
+    return () => {
+      disposed = true;
+      controller?.abort();
+      window.clearTimeout(timer);
+    };
+  }, [
+    session,
+    room?.channel,
+    room?.historyRequired,
+    phase,
+    acceptRoom,
+    historySynced,
+  ]);
 
   useEffect(() => {
     if (milestone === null) return;
@@ -657,6 +732,7 @@ export default function PartyGame({
               chatterPool: Number(chatterPool),
               roundCount: Number(roundCount),
               roundSeconds: Number(roundSeconds),
+              seenMessageKeys: await readSeenHistory(channel),
             }
           : { name: name.trim() },
       );
@@ -678,7 +754,7 @@ export default function PartyGame({
   }
 
   const act = useCallback(
-    async (action: Action, choice?: string) => {
+    async (action: Action, choice?: string, settings?: object) => {
       if (
         !session ||
         actionPending.current ||
@@ -709,11 +785,16 @@ export default function PartyGame({
           controller,
           (data) => (action === "leave" ? parseLeave(data) : parseRoom(data)),
           session.token,
-          action === "guess" ? { roundId: room!.round!.id, choice } : {},
+          action === "guess"
+            ? { roundId: room!.round!.id, choice }
+            : (settings ?? {}),
         );
         if (controller.signal.aborted) return;
         if (action === "leave") finishLeave();
-        else if ("code" in result) acceptRoom(result);
+        else if ("code" in result) {
+          setShowFreshOptions(false);
+          acceptRoom(result);
+        }
       } catch (problem) {
         if (
           !controller.signal.aborted ||
@@ -1082,13 +1163,39 @@ export default function PartyGame({
           </p>
         )}
         {retryNotice}
+        {historyError && (
+          <p role="status" className="party-help">
+            {historyError}
+          </p>
+        )}
+        {historyPending && (phase === "waiting" || phase === "finished") && (
+          <p role="status" className="party-help">
+            Waiting for everyone to sync their question history…
+          </p>
+        )}
+        {showFreshOptions &&
+          isHost &&
+          room.matchSettings &&
+          (phase === "waiting" || phase === "finished") && (
+            <PartyMatchSettings
+              key={JSON.stringify(room.matchSettings)}
+              settings={room.matchSettings}
+              disabled={Boolean(busy)}
+              onSave={(settings) =>
+                void act("settings", undefined, {
+                  channel: room.channel,
+                  ...settings,
+                })
+              }
+            />
+          )}
         {phase === "waiting" ? (
           <section className="party-lobby">
             <p className="eyebrow">THE CASE IS READY</p>
             <h1>Gather your chat detectives.</h1>
             <p className="party-description">
-              {room.totalRounds} rounds · {room.roundSeconds} seconds per clue ·
-              2–8 players
+              {room.matchSettings?.roundCount ?? room.totalRounds} rounds ·{" "}
+              {room.roundSeconds} seconds per clue · 2–8 players
             </p>
             <div className="party-invite">
               <div className="party-code">
@@ -1130,7 +1237,10 @@ export default function PartyGame({
               <button
                 className="launch party-start"
                 disabled={
-                  Boolean(busy) || retrySeconds > 0 || room.players.length < 2
+                  Boolean(busy) ||
+                  retrySeconds > 0 ||
+                  room.players.length < 2 ||
+                  historyPending
                 }
                 onClick={() => void act("start")}
               >
@@ -1307,7 +1417,8 @@ export default function PartyGame({
                     className="launch"
                     disabled={
                       Boolean(busy) ||
-                      (phase === "finished" && retrySeconds > 0)
+                      (phase === "finished" &&
+                        (retrySeconds > 0 || historyPending))
                     }
                     onClick={() =>
                       void act(phase === "finished" ? "rematch" : "next")

@@ -59,11 +59,22 @@ assert.ok(
     400,
 );
 
+const seenMessageKeys = [];
+async function syncHistory() {
+  for (const member of [host, guest]) {
+    await ok(`${path}/history`, {
+      token: member.token,
+      body: { seenMessageKeys },
+    });
+  }
+}
+await syncHistory();
 let room = await ok(`${path}/start`, { token: host.token, body: {} });
 assert.equal(room.phase, "round");
 const firstRoundId = room.round.id;
 for (let number = 1; number <= room.totalRounds; number += 1) {
   assert.equal(room.roundNumber, number);
+  seenMessageKeys.push(room.round.historyKey);
   assert.equal(
     room.round.author,
     undefined,
@@ -109,6 +120,7 @@ console.log(
   "PASS: join, host permissions, five synchronized rounds, hidden answers/guesses, scoring and results.",
 );
 
+await syncHistory();
 room = await ok(`${path}/rematch`, { token: host.token, body: {} });
 assert.ok(
   room.players.every((player) => player.score === 0 && player.streak === 0),

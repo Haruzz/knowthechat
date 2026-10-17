@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Literal, overload
 
-from domain.rooms import Room, RoomError
-from room_models import GuessRequest, JoinRoomRequest
+from domain.rooms import Room, RoomArchiveSettings, RoomError
+from room_models import GuessRequest, HistoryRequest, JoinRoomRequest, MatchSettingsRequest
 from room_types import CommandResult, LeaveResult, RoomSession, RoomSnapshot, SnapshotAction
 from services.rooms import new_player
 
@@ -47,7 +47,25 @@ def execute_command(
     # Throttle presence writes for HTTP fallback clients and ordinary actions.
     if now - player.last_seen >= 15_000:
         player.last_seen = now
-    if action == "start":
+    if action == "history":
+        history = HistoryRequest.model_validate(payload)
+        if room.phase not in ("waiting", "finished"):
+            raise RoomError("History can be synced between matches.", 409)
+        player.seen_message_keys = list(dict.fromkeys(history.seen_message_keys))
+        player.history_ready = True
+    elif action == "settings":
+        room.require_host(player)
+        if room.phase not in ("waiting", "finished"):
+            raise RoomError("Change match settings between games.", 409)
+        settings = MatchSettingsRequest.model_validate(payload)
+        if settings.channel != room.channel:
+            raise RoomError("Create a new lobby to change channels.", 409)
+        room.archive_settings = RoomArchiveSettings(
+            settings.range_days, settings.archive_year, settings.chatter_pool
+        )
+        room.requested_round_count = settings.round_count
+        room.deck_needs_refresh = True
+    elif action == "start":
         room.start(player, now)
     elif action == "guess":
         guess = GuessRequest.model_validate(payload)

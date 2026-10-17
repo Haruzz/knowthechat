@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unicodedata
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -13,6 +13,18 @@ def normalize_name(value: str) -> str:
     if not 1 <= len(name) <= 20 or any(unicodedata.category(char).startswith("C") for char in name):
         raise ValueError("Use a display name with 1-20 visible characters.")
     return name
+
+
+class HistoryRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+    seen_message_keys: list[Annotated[str, Field(pattern=r"^h:[a-f0-9]{24}$")]] = Field(
+        alias="seenMessageKeys", max_length=500
+    )
+
+
+class MatchSettingsRequest(PublicArchiveRequest):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+    round_count: Literal[5, 10, 20] = Field(alias="roundCount")
 
 
 class JoinRoomRequest(BaseModel):
@@ -27,6 +39,9 @@ class JoinRoomRequest(BaseModel):
 
 class CreateRoomRequest(PublicArchiveRequest):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
+    seen_message_keys: list[Annotated[str, Field(pattern=r"^h:[a-f0-9]{24}$")]] = Field(
+        default_factory=list, alias="seenMessageKeys", max_length=500
+    )
     name: str = Field(max_length=80)
     round_count: Literal[5, 10, 20] = Field(10, alias="roundCount")
     round_seconds: Literal[15, 20, 30] = Field(20, alias="roundSeconds")

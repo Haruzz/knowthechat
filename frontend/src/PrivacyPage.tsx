@@ -43,7 +43,7 @@ export default function PrivacyPage() {
             Amazon, featured streamers, or the archive and emote providers it
             uses.
           </p>
-          <p className="privacy-updated">Effective September 12, 2026</p>
+          <p className="privacy-updated">Effective October 17, 2026</p>
         </header>
 
         <section>
@@ -64,7 +64,11 @@ export default function PrivacyPage() {
             identifiers in your browser&apos;s local storage to reduce repeated
             rounds, along with music, music volume, sound-effect and
             visual-effects preferences. You can remove this information using
-            your browser&apos;s site data controls.
+            your browser&apos;s site data controls. This history is shared
+            between singleplayer and multiplayer. Before multiplayer matches,
+            each player sends up to 500 opaque message identifiers for the
+            selected channel. Questions seen by any participant are excluded
+            from that lobby&apos;s matches and rematches.
           </p>
           <p>
             A multiplayer room code and session token are stored in the browser
@@ -88,10 +92,12 @@ export default function PrivacyPage() {
             recovery retention may outlast application deletion.
           </p>
           <p>
-            Rooms also store the original archive settings and hashes of up to
-            2,000 recently used quote texts to avoid repeats in rematches. This
+            Rooms also store the selected archive settings and hashes of up to
+            1,000 recently used quote texts to avoid repeats in rematches. This
             internal quote history is not sent to players and is deleted with
-            the room, within its two-hour lifetime.
+            the room, within its two-hour lifetime. Each player&apos;s
+            exclusions are kept privately while they remain in the room. Older
+            rooms may retain up to 2,000 quote-text hashes until expiry.
           </p>
         </section>
 

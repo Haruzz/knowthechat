@@ -9,6 +9,11 @@ import {
 
 import StreakEffects, { GamePreferences } from "./StreakEffects";
 import PartyGame from "./PartyGame";
+import {
+  readSeenHistory,
+  messageHistoryKey,
+  rememberMessage,
+} from "./seenHistory";
 import GameChannel from "./GameChannel";
 import ProjectLinks from "./ProjectLinks";
 import { useMusic, type MusicScene } from "./music";
@@ -53,19 +58,6 @@ const ARCHIVE_YEARS = Array.from(
   { length: 4 },
   (_, index) => CURRENT_YEAR - index,
 );
-
-function readSeenHistory(channel: string): string[] {
-  try {
-    const stored: unknown = JSON.parse(
-      localStorage.getItem(`knowthechat-seen:${channel}`) || "[]",
-    );
-    return Array.isArray(stored)
-      ? stored.filter((id): id is string => typeof id === "string").slice(-500)
-      : [];
-  } catch {
-    return [];
-  }
-}
 
 function readPreference(key: string, fallback = true): boolean {
   try {
@@ -422,17 +414,7 @@ export default function App() {
   }, [milestone]);
   useEffect(() => {
     if (!current || !channel) return;
-    const key = `knowthechat-seen:${channel}`;
-    const seen = readSeenHistory(channel);
-    if (seen.includes(current.id)) return;
-    try {
-      localStorage.setItem(
-        key,
-        JSON.stringify([...seen, current.id].slice(-500)),
-      );
-    } catch {
-      /* History is optional when browser storage is full or disabled. */
-    }
+    rememberMessage(channel, current.id);
   }, [current, channel]);
 
   async function load(event: SubmitEvent<HTMLFormElement>) {
@@ -497,20 +479,21 @@ export default function App() {
         data.roomId ?? "",
       );
       setLoadingProgress(97);
-      const seen = readSeenHistory(data.channel);
-      const freshQuotes = enriched.filter(
-        (quote: Quote) => !seen.includes(quote.id),
+      const seen = new Set(await readSeenHistory(data.channel));
+      const candidates = await Promise.all(
+        enriched.map(async (quote: Quote) => ({
+          quote,
+          key: await messageHistoryKey(quote.id),
+        })),
       );
+      const freshQuotes = candidates
+        .filter(({ key }) => !seen.has(key))
+        .map(({ quote }) => quote);
       const freshRounds = makeRounds(freshQuotes, data.chatters ?? []);
-      const freshIds = new Set(freshRounds.map((round) => round.id));
-      const replayRounds = makeRounds(enriched, data.chatters ?? []).filter(
-        (round) => !freshIds.has(round.id),
-      );
-      const available = [...freshRounds, ...replayRounds];
-      const built = mode === "10" ? available.slice(0, 10) : available;
-      if (built.length < 3) {
+      const built = mode === "10" ? freshRounds.slice(0, 10) : freshRounds;
+      if (built.length < (mode === "10" ? 10 : 3)) {
         setError(
-          "That archive does not have enough distinct, recognizable messages in the selected period.",
+          "Not enough fresh messages. Choose a wider period or another channel.",
         );
         return;
       }

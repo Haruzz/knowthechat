@@ -8,6 +8,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
+import { messageHistoryKey } from "./seenHistory";
 import * as PartyGameModule from "./PartyGame";
 import { useMusic } from "./music";
 import {
@@ -43,7 +44,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function startGame(roundCount = 16, gameLength?: "10" | "unlimited") {
+async function startGame(
+  roundCount = 16,
+  gameLength?: "10" | "unlimited",
+  expectedCount = roundCount,
+) {
   vi.spyOn(Math, "random").mockReturnValue(0.5);
   const chatters = ["Alice", "Bob", "Carol"].map((name, index) => ({
     id: String(index),
@@ -88,7 +93,7 @@ async function startGame(roundCount = 16, gameLength?: "10" | "unlimited") {
   });
   fireEvent.click(screen.getByRole("button", { name: /open the case/i }));
   await screen.findByLabelText(
-    `Question 1 of ${gameLength === "10" ? Math.min(10, roundCount) : roundCount}, score 0 of 0`,
+    `Question 1 of ${gameLength === "10" ? Math.min(10, expectedCount) : expectedCount}, score 0 of 0`,
   );
 }
 
@@ -101,6 +106,23 @@ function correctChoice() {
 }
 
 describe("Who Said It frontend", () => {
+  it("excludes legacy solo and multiplayer history from a solo game", async () => {
+    localStorage.setItem(
+      "knowthechat-seen:example",
+      JSON.stringify(["quote-0", await messageHistoryKey("quote-1")]),
+    );
+    await startGame(5, "unlimited", 3);
+    for (let i = 0; i < 3; i++) {
+      expect(screen.queryByText("Clue from Alice: message 0")).toBeNull();
+      expect(screen.queryByText("Clue from Bob: message 1")).toBeNull();
+      fireEvent.click(correctChoice());
+      fireEvent.click(
+        screen.getByRole("button", { name: /next message|see results/i }),
+      );
+    }
+    expect(screen.getByRole("heading", { name: "3 / 3" })).toBeTruthy();
+  });
+
   it.each([
     [3, "unlimited", 3],
     [12, "10", 10],
@@ -605,9 +627,9 @@ describe("Who Said It frontend", () => {
       screen.getByRole("button", { name: "Try another channel" }),
     );
     fireEvent.click(screen.getByRole("button", { name: /open the case/i }));
-    expect(
-      await screen.findByLabelText("Question 1 of 16, score 0 of 0"),
-    ).toBeTruthy();
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Not enough fresh messages. Choose a wider period or another channel.",
+    );
   });
 
   it("plays each milestone jingle once instead of the normal answer sound", async () => {
