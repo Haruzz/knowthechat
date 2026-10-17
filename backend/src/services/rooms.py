@@ -13,6 +13,7 @@ from pydantic import TypeAdapter
 
 from api_models import PublicArchiveRequest, PublicArchiveResponse
 from domain.admission import AdmissionGateway
+from domain.filtering import contains_excluded_chatter, is_excluded_chatter
 from domain.rooms import (
     ROOM_LIFETIME_MS,
     GameRound,
@@ -74,13 +75,18 @@ def build_rounds(
     excluded: set[str] | None = None,
     seen_message_keys: set[str] | None = None,
 ) -> list[GameRound]:
-    names = list(dict.fromkeys(chatter.name for chatter in archive.chatters))
+    names = list(
+        dict.fromkeys(
+            chatter.name for chatter in archive.chatters if not is_excluded_chatter(chatter.name)
+        )
+    )
     seen = set(excluded or ())
     quotes = []
     for quote in archive.quotes:
         key = quote_key(quote.text)
         if (
             quote.author in names
+            and not contains_excluded_chatter(quote.text)
             and key not in seen
             and message_history_key(quote.id) not in (seen_message_keys or set())
         ):

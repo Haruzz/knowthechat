@@ -17,6 +17,7 @@ from api_models import (
     QuoteResponse,
 )
 from domain.duplicates import NearDuplicateIndex
+from domain.filtering import contains_excluded_chatter, is_excluded_chatter
 from domain.models import Message
 from domain.parsing import parse_irc_message
 from domain.ranking import rank_chatters
@@ -339,6 +340,8 @@ class PublicArchiveService:
         for message in messages:
             if (
                 message.sent_at < cutoff
+                or is_excluded_chatter(message.name)
+                or contains_excluded_chatter(message.body)
                 or message.id in seen_ids
                 or message.normalized in seen_text
                 or near_duplicates.has_near_duplicate(message.normalized)

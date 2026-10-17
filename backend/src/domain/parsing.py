@@ -7,7 +7,13 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
-from domain.filtering import is_known_bot, is_low_quality, is_twitch_event_notice
+from domain.filtering import (
+    contains_excluded_chatter,
+    is_excluded_chatter,
+    is_known_bot,
+    is_low_quality,
+    is_twitch_event_notice,
+)
 from domain.models import Message
 from domain.text import normalize_message, parse_twitch_emotes, utf16_length, utf16_slice
 
@@ -64,6 +70,9 @@ def _valid_message(
         or utf16_length(normalized) < 10
         or is_known_bot(login)
         or is_known_bot(name)
+        or is_excluded_chatter(login)
+        or is_excluded_chatter(name)
+        or contains_excluded_chatter(body)
         or is_twitch_event_notice(body, tags)
         or is_low_quality(body, normalized, emote_tag)
         or bool(_URL.search(body))

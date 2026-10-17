@@ -4,6 +4,21 @@ import re
 
 from domain.text import meaningful_character_count, normalize_message, without_twitch_emotes
 
+EXCLUDED_CHATTERS = frozenset({"sheepmuffin"})
+_EXCLUDED_MENTION = re.compile(
+    r"(?<![a-z0-9_])(?:" + "|".join(map(re.escape, sorted(EXCLUDED_CHATTERS))) + r")(?![a-z0-9_])",
+    re.IGNORECASE,
+)
+
+
+def is_excluded_chatter(name: str) -> bool:
+    return name.strip().removeprefix("@").casefold() in EXCLUDED_CHATTERS
+
+
+def contains_excluded_chatter(body: str) -> bool:
+    return bool(_EXCLUDED_MENTION.search(body))
+
+
 KNOWN_BOTS = frozenset(
     {
         "streamelements",
