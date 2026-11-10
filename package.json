@@ -33,7 +33,7 @@
   "devDependencies": {
     "@pyodide/ts-to-python": "0.1.8",
     "husky": "9.1.7",
-    "lint-staged": "17.3.0",
-    "prettier": "3.9.6"
+    "lint-staged": "17.6.0",
+    "prettier": "3.9.10"
   }
 }
