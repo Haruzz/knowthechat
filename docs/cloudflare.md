@@ -1,5 +1,7 @@
 # Cloudflare operations
 
+The hosted site is offline, and the knowthechat.com domain will not auto-renew. The configuration and deployment instructions below are retained for reference.
+
 ## Deployment shape and routing
 
 The application is one Cloudflare Worker deployment, not two publicly routed Workers:

@@ -2,7 +2,7 @@
 
 Know The Chat is a Twitch chat guessing game: read a real archived message and guess which of three chatters said it. Play solo or invite friends to a private, timed match.
 
-**[Play at knowthechat.com](https://knowthechat.com)**
+**The hosted site is offline, and the knowthechat.com domain will not auto-renew. Thanks for playing and for your support!**
 
 ![Know The Chat preview](docs/assets/repository-social-preview.png)
 
